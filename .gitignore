@@ -1,0 +1,20 @@
+﻿################################################################################
+# この .gitignore ファイルは Microsoft(R) Visual Studio によって自動的に作成されました。
+################################################################################
+
+/.vs
+/AnimeListCommander/bin/Debug/net10.0-windows
+/AnimeListCommander/obj
+/AnimeListCommander.Core/bin/Debug/net10.0
+/AnimeListCommander.Core/obj
+/AnimeListCommander.Entities/bin/Debug/net10.0
+/AnimeListCommander.Entities/obj
+/AnimeListCommander.Services/bin/Debug/net10.0
+/AnimeListCommander.Services/obj
+/AnimeListCommander.Tests.SandBox/bin/Debug/net10.0
+/AnimeListCommander.Tests.SandBox
+/AppIconImage
+/HalationGhost.Utilities/bin/Debug/net10.0
+/HalationGhost.Utilities/obj
+/HalationGhost.Wpf.Ui/bin/Debug/net10.0-windows
+/HalationGhost.Wpf.Ui/obj

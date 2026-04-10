@@ -1,0 +1,58 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>ALC-Icon.ico</ApplicationIcon>
+    <UseWPF>true</UseWPF>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Version>0.8.6</Version>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Remove="bk\**" />
+    <EmbeddedResource Remove="bk\**" />
+    <None Remove="bk\**" />
+    <Page Remove="bk\**" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Remove="Assets\ALC-Icon-256.png" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Resource Include="ALC-Icon.ico" />
+    <Resource Include="Assets\ALC-Icon-256.png" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="appsettings.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="deploy-template.html">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Dapper" Version="2.1.72" />
+    <PackageReference Include="ObservableCollections.R3" Version="3.3.4" />
+    <PackageReference Include="R3" Version="1.3.0" />
+    <PackageReference Include="R3Extensions.WPF" Version="1.3.0" />
+    <PackageReference Include="SourceGear.sqlite3" Version="3.50.4.5" />
+    <PackageReference Include="System.Data.SQLite" Version="2.0.3" />
+    <PackageReference Include="WPF-UI" Version="4.2.0" />
+    <PackageReference Include="WPF-UI.DependencyInjection" Version="4.2.0" />
+    <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.5" />
+    <PackageReference Include="ZLogger" Version="2.5.10" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\AnimeListCommander.Entities\AnimeListCommander.Entities.csproj" />
+    <ProjectReference Include="..\AnimeListCommander.Services\AnimeListCommander.Services.csproj" />
+    <ProjectReference Include="..\HalationGhost.Wpf.Ui\HalationGhost.Wpf.Ui.csproj" />
+  </ItemGroup>
+
+</Project>

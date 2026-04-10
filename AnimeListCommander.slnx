@@ -1,0 +1,9 @@
+<Solution>
+  <Project Path="AnimeListCommander.Core/AnimeListCommander.Core.csproj" Id="0077d046-b5b2-4339-b264-de6f2e62559f" />
+  <Project Path="AnimeListCommander.Entities/AnimeListCommander.Entities.csproj" Id="a89014c5-3e79-4857-9c6c-a2e333e9aabe" />
+  <Project Path="AnimeListCommander.Services/AnimeListCommander.Services.csproj" Id="5c425f43-d06e-49fb-b942-5e7a2830e707" />
+  <Project Path="AnimeListCommander.Tests.SandBox/AnimeListCommander.Tests.SandBox.csproj" />
+  <Project Path="AnimeListCommander/AnimeListCommander.csproj" />
+  <Project Path="HalationGhost.Utilities/HalationGhost.Utilities.csproj" Id="156aa45c-3fe2-4563-aea0-6aa0f2867817" />
+  <Project Path="HalationGhost.Wpf.Ui/HalationGhost.Wpf.Ui.csproj" Id="b12689b9-c692-4041-92db-0846c6ff1e11" />
+</Solution>

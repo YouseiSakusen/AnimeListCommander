@@ -1,0 +1,62 @@
+﻿<Page
+    x:Class="AnimeListCommander.Operations.AnimeExportPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
+    mc:Ignorable="d"
+    Title="展開">
+
+    <Grid Margin="24,8,24,24">
+
+        <!-- 操作エリア -->
+        <StackPanel
+            Orientation="Vertical"
+            VerticalAlignment="Top">
+
+            <!-- Card 1: クール選択・出力先・展開実行 -->
+            <ui:Card Margin="0,0,0,16">
+                <StackPanel>
+                    <ComboBox
+                        ItemsSource="{Binding Seasons}"
+                        SelectedItem="{Binding SelectedSeason.Value, Mode=TwoWay}"
+                        DisplayMemberPath="DisplayName"
+                        Width="300"
+                        Margin="0,0,0,16"
+                        HorizontalAlignment="Center" />
+
+                    <TextBlock
+                        Text="{Binding ExportPath.Value}"
+                        Margin="0,0,0,16"
+                        HorizontalAlignment="Center" />
+
+                    <ui:Button
+                        Width="200"
+                        Content="展開実行"
+                        Appearance="Primary"
+                        Command="{Binding ExportCommand}"
+                        HorizontalAlignment="Center" />
+                </StackPanel>
+            </ui:Card>
+
+            <!-- Card 2: 補助操作 -->
+            <ui:Card>
+                <StackPanel
+                    Orientation="Horizontal"
+                    HorizontalAlignment="Center">
+                    <ui:Button
+                        Content="クリッカブルマップ生成"
+                        Command="{Binding GenerateMapCommand}"
+                        Margin="0,0,32,0" />
+
+                    <ui:Button
+                        Content="HTML紹介文並べ替え"
+                        Command="{Binding SortHtmlCommand}" />
+                </StackPanel>
+            </ui:Card>
+
+        </StackPanel>
+
+    </Grid>
+</Page>
