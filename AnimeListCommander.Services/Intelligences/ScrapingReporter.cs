@@ -12,7 +12,7 @@ public class ScrapingReporter
 {
 	private const string LabelNew = "【新】";
 	private const string LabelUpdated = "【更】";
-	private const string LabelSkipped = "【済】";
+	private const string LabelSkipped = "【-】";
 	private const string LabelFailed = "【★今回から除外★】要確認";
 	private const string Separator = "------------------------------------------------------------";
 
