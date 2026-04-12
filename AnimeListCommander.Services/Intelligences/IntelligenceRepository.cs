@@ -47,7 +47,7 @@ public class IntelligenceRepository
 			await using var transaction = await connection.BeginTransactionAsync(ct);
 			try
 			{
-				var existing = await selectExistingAsync(connection, transaction, season, work);
+				var existing = await this.selectExistingAsync(connection, transaction, season, work);
 				var hash = work.CalculateContentHash();
 				var directoryName = string.IsNullOrWhiteSpace(work.DirectoryName)
 					? AnimeTitleNormalizer.ToSafeDirectoryName(work.MyTitle)
@@ -56,25 +56,25 @@ public class IntelligenceRepository
 				SaveResult result;
 				if (existing is null)
 				{
-					var newId = await insertWorkAsync(connection, transaction, season, work, hash, directoryName);
-					await insertCastsAsync(connection, transaction, newId, work.Casts);
-					await insertStaffsAsync(connection, transaction, newId, work.Staffs);
+					var newId = await this.insertWorkAsync(connection, transaction, season, work, hash, directoryName);
+					await this.insertCastsAsync(connection, transaction, newId, work.Casts);
+					await this.insertStaffsAsync(connection, transaction, newId, work.Staffs);
 					result = new SaveResult { Work = work, Status = SaveStatus.New };
 					this.logger.ZLogInfo($"[New] {work.NormalizedTitle}");
 				}
 				else if (existing.ContentHash != hash)
 				{
-					await updateWorkAsync(connection, transaction, existing.Id, work, hash, directoryName);
-					await deleteCastsAsync(connection, transaction, existing.Id);
-					await insertCastsAsync(connection, transaction, existing.Id, work.Casts);
-					await deleteStaffsAsync(connection, transaction, existing.Id);
-					await insertStaffsAsync(connection, transaction, existing.Id, work.Staffs);
+					await this.updateWorkAsync(connection, transaction, existing.Id, work, hash, directoryName);
+					await this.deleteCastsAsync(connection, transaction, existing.Id);
+					await this.insertCastsAsync(connection, transaction, existing.Id, work.Casts);
+					await this.deleteStaffsAsync(connection, transaction, existing.Id);
+					await this.insertStaffsAsync(connection, transaction, existing.Id, work.Staffs);
 					result = new SaveResult { Work = work, Status = SaveStatus.Updated };
 					this.logger.ZLogInfo($"[Updated] {work.NormalizedTitle}");
 				}
 				else
 				{
-					await touchWorkAsync(connection, transaction, existing.Id);
+					await this.touchWorkAsync(connection, transaction, existing.Id);
 					result = new SaveResult { Work = work, Status = SaveStatus.Skipped };
 					this.logger.ZLogInfo($"[Skipped] {work.NormalizedTitle}");
 				}
@@ -95,14 +95,31 @@ public class IntelligenceRepository
 		return results;
 	}
 
+	/// <summary>
+	/// 既存レコードの照合に使用する内部データクラスです。
+	/// </summary>
 	private sealed class ExistingWork
 	{
+		/// <summary>
+		/// レコードの主キーを取得または設定します。
+		/// </summary>
 		public int Id { get; set; }
+
+		/// <summary>
+		/// レコードのコンテンツハッシュ値を取得または設定します。
+		/// </summary>
 		public string? ContentHash { get; set; }
 	}
 
-	private static async Task<ExistingWork?> selectExistingAsync(
-		SQLiteConnection connection, DbTransaction transaction, Season season, AnimeWork work)
+	/// <summary>
+	/// 指定クールおよびタイトルに一致する既存レコードを取得します。
+	/// </summary>
+	/// <param name="connection">SQLite 接続。</param>
+	/// <param name="transaction">使用中のトランザクション。</param>
+	/// <param name="season">対象クール。</param>
+	/// <param name="work">突合対象のアニメ作品。</param>
+	/// <returns>既存レコード。存在しない場合は null。</returns>
+	private async Task<ExistingWork?> selectExistingAsync(SQLiteConnection connection, DbTransaction transaction, Season season, AnimeWork work)
 	{
 		var sql = new StringBuilder();
 		sql.AppendLine(" SELECT ");
@@ -119,8 +136,17 @@ public class IntelligenceRepository
 			transaction);
 	}
 
-	private static async Task<long> insertWorkAsync(
-		SQLiteConnection connection, DbTransaction transaction, Season season, AnimeWork work, string hash, string directoryName)
+	/// <summary>
+	/// アニメ作品を AnimeWorks テーブルに INSERT し、新規採番された ID を返します。
+	/// </summary>
+	/// <param name="connection">SQLite 接続。</param>
+	/// <param name="transaction">使用中のトランザクション。</param>
+	/// <param name="season">対象クール。</param>
+	/// <param name="work">挿入するアニメ作品情報。</param>
+	/// <param name="hash">コンテンツハッシュ値。</param>
+	/// <param name="directoryName">ディレクトリ名。</param>
+	/// <returns>INSERT されたレコードの ID。</returns>
+	private async Task<long> insertWorkAsync(SQLiteConnection connection, DbTransaction transaction, Season season, AnimeWork work, string hash, string directoryName)
 	{
 		var sql = new StringBuilder();
 		sql.AppendLine(" INSERT INTO AnimeWorks ");
@@ -215,8 +241,14 @@ public class IntelligenceRepository
 					return await connection.QuerySingleAsync<long>("SELECT last_insert_rowid();", transaction: transaction);
 				}
 
-				private static async Task insertCastsAsync(
-		SQLiteConnection connection, DbTransaction transaction, long animeWorkId, List<CastInfo> casts)
+	/// <summary>
+	/// キャスト情報を Casts テーブルに一括 INSERT します。
+	/// </summary>
+	/// <param name="connection">SQLite 接続。</param>
+	/// <param name="transaction">使用中のトランザクション。</param>
+	/// <param name="animeWorkId">親となるアニメ作品の ID。</param>
+	/// <param name="casts">挿入するキャスト情報のリスト。</param>
+	private async Task insertCastsAsync(SQLiteConnection connection, DbTransaction transaction, long animeWorkId, List<CastInfo> casts)
 	{
 		if (casts.Count == 0)
 		{
@@ -251,8 +283,14 @@ public class IntelligenceRepository
 			transaction);
 	}
 
-	private static async Task insertStaffsAsync(
-		SQLiteConnection connection, DbTransaction transaction, long animeWorkId, List<StaffInfo> staffs)
+	/// <summary>
+	/// スタッフ情報を Staffs テーブルに一括 INSERT します。
+	/// </summary>
+	/// <param name="connection">SQLite 接続。</param>
+	/// <param name="transaction">使用中のトランザクション。</param>
+	/// <param name="animeWorkId">親となるアニメ作品の ID。</param>
+	/// <param name="staffs">挿入するスタッフ情報のリスト。</param>
+	private async Task insertStaffsAsync(SQLiteConnection connection, DbTransaction transaction, long animeWorkId, List<StaffInfo> staffs)
 	{
 		if (staffs.Count == 0)
 		{
@@ -290,8 +328,16 @@ public class IntelligenceRepository
 			transaction);
 	}
 
-	private static async Task updateWorkAsync(
-		SQLiteConnection connection, DbTransaction transaction, int id, AnimeWork work, string hash, string directoryName)
+	/// <summary>
+	/// 指定 ID のアニメ作品レコードを UPDATE します。
+	/// </summary>
+	/// <param name="connection">SQLite 接続。</param>
+	/// <param name="transaction">使用中のトランザクション。</param>
+	/// <param name="id">更新対象レコードの ID。</param>
+	/// <param name="work">更新後のアニメ作品情報。</param>
+	/// <param name="hash">コンテンツハッシュ値。</param>
+	/// <param name="directoryName">ディレクトリ名。</param>
+	private async Task updateWorkAsync(SQLiteConnection connection, DbTransaction transaction, int id, AnimeWork work, string hash, string directoryName)
 	{
 		var sql = new StringBuilder();
 		sql.AppendLine(" UPDATE AnimeWorks ");
@@ -351,15 +397,27 @@ public class IntelligenceRepository
 						transaction);
 				}
 
-				private static async Task deleteCastsAsync(SQLiteConnection connection, DbTransaction transaction, int animeWorkId)
-				{
+	/// <summary>
+	/// 指定アニメ作品 ID に紐づくキャスト情報を全件削除します。
+	/// </summary>
+	/// <param name="connection">SQLite 接続。</param>
+	/// <param name="transaction">使用中のトランザクション。</param>
+	/// <param name="animeWorkId">削除対象の親アニメ作品 ID。</param>
+	private async Task deleteCastsAsync(SQLiteConnection connection, DbTransaction transaction, int animeWorkId)
+	{
 		await connection.ExecuteAsync(
 			" DELETE FROM Casts WHERE AnimeWorkId = @AnimeWorkId ",
 			new { AnimeWorkId = animeWorkId },
 			transaction);
 	}
 
-	private static async Task deleteStaffsAsync(SQLiteConnection connection, DbTransaction transaction, int animeWorkId)
+	/// <summary>
+	/// 指定アニメ作品 ID に紐づくスタッフ情報を全件削除します。
+	/// </summary>
+	/// <param name="connection">SQLite 接続。</param>
+	/// <param name="transaction">使用中のトランザクション。</param>
+	/// <param name="animeWorkId">削除対象の親アニメ作品 ID。</param>
+	private async Task deleteStaffsAsync(SQLiteConnection connection, DbTransaction transaction, int animeWorkId)
 	{
 		await connection.ExecuteAsync(
 			" DELETE FROM Staffs WHERE AnimeWorkId = @AnimeWorkId ",
@@ -367,7 +425,13 @@ public class IntelligenceRepository
 			transaction);
 	}
 
-	private static async Task touchWorkAsync(SQLiteConnection connection, DbTransaction transaction, int id)
+	/// <summary>
+	/// 指定 ID のアニメ作品レコードの UpdatedAt を現在日時に更新します。
+	/// </summary>
+	/// <param name="connection">SQLite 接続。</param>
+	/// <param name="transaction">使用中のトランザクション。</param>
+	/// <param name="id">更新対象レコードの ID。</param>
+	private async Task touchWorkAsync(SQLiteConnection connection, DbTransaction transaction, int id)
 	{
 		await connection.ExecuteAsync(
 			" UPDATE AnimeWorks SET UpdatedAt = DATETIME('now', 'localtime') WHERE Id = @Id ",

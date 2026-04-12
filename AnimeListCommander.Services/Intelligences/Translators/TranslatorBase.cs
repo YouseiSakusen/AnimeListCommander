@@ -17,7 +17,7 @@ public abstract class TranslatorBase : ITranslator
 		work.NormalizedTitle = AnimeTitleNormalizer.Normalize(work.Title);
 		if (string.IsNullOrWhiteSpace(work.MyTitle))
 			work.MyTitle = JpStringConverter.ToHalfWidthAlphanumeric(work.Title);
-		applyCommonCleaning(work);
+		this.applyCommonCleaning(work);
 		return work;
 	}
 
@@ -35,7 +35,7 @@ public abstract class TranslatorBase : ITranslator
 	/// <summary>
 	/// 全サイト共通のクレンジング処理を適用します。
 	/// </summary>
-	private static void applyCommonCleaning(AnimeWork work)
+	private void applyCommonCleaning(AnimeWork work)
 	{
 		work.Staffs.RemoveAll(s => s.Role == "脚本");
 
