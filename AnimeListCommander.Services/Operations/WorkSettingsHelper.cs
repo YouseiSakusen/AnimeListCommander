@@ -143,7 +143,12 @@ public static class WorkSettingsHelper
 			case "#TITLE_RUBY":         return work.Title_Ruby;
 			case "#COMPANY":            return work.Company;
 			case "#PRODUCTION_LOGO":    return work.Production;
-			case "#THEME_SONG":         return work.ThemeSongs;
+			// 外部ツール（画像生成マクロ等）のテンプレートとして項目が必要なため、
+			// 未設定の場合もデフォルト値を出力する。
+			case "#THEME_SONG":
+				return string.IsNullOrWhiteSpace(work.ThemeSongs)
+					? "OP：\nED："
+					: work.ThemeSongs;
 			case "#ORIGINAL":           return work.Original;
 			case "#BROADCAST_TEXT":     return work.BroadcastText;
 			case "#BROADCAST_LOGO":     return work.Broadcast;

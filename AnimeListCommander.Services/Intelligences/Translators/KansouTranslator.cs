@@ -55,6 +55,14 @@ public class KansouTranslator : TranslatorBase
 			OfficialSiteUrl = rawData.OfficialSiteUrl,
 		};
 
+		// SNSのみの作品は正規の公式サイト無しとして扱う
+		if (string.IsNullOrWhiteSpace(work.OfficialSiteUrl)
+			|| work.OfficialSiteUrl.Contains("x.com",       StringComparison.OrdinalIgnoreCase)
+			|| work.OfficialSiteUrl.Contains("twitter.com", StringComparison.OrdinalIgnoreCase))
+		{
+			work.IsImport = false;
+		}
+
 		applyBroadcastInfo(rawData, work);
 		return work;
 	}
@@ -98,9 +106,12 @@ public class KansouTranslator : TranslatorBase
 
 		if (confirmed.Count > 0)
 		{
-			var sorted  = confirmed.OrderBy(e => e.SortDateTime).ToList();
-			var fastest = sorted[0];
-			work.FirstBroadcast = $"{fastest.ScheduleDate:M月d日} {fastest.SortDateTime:HH:mm}";
+			var sorted      = confirmed.OrderBy(e => e.SortDateTime).ToList();
+			var fastest     = sorted[0];
+			var displayHour = fastest.SortDateTime.Hour <= 4
+				? fastest.SortDateTime.Hour + 24
+				: fastest.SortDateTime.Hour;
+			work.FirstBroadcast = $"{fastest.ScheduleDate:M/d}～ 毎週{fastest.ScheduleDate.ToString("ddd")}曜 {displayHour:D2}:{fastest.SortDateTime.Minute:D2}";
 			work.Broadcast      = fastest.CleanStation;
 			work.BroadcastText  = string.Join(", ", sorted.Skip(1).Select(e => e.CleanStation).Concat(undetermined));
 		}
