@@ -34,15 +34,16 @@ public class ScrapingReporter
 	/// 保存結果一覧からテキストレポートを生成してファイルに書き出し、そのフルパスを返します。
 	/// </summary>
 	/// <param name="results">保存結果一覧。</param>
+	/// <param name="season">対象クール。ファイル名に使用します。</param>
 	/// <param name="ct">キャンセルトークン。</param>
 	/// <returns>生成されたレポートファイルのフルパス。</returns>
-	public async Task<string> OutputReportAsync(IReadOnlyList<SaveResult> results, CancellationToken ct)
+	public async Task<string> OutputReportAsync(IReadOnlyList<SaveResult> results, Season season, CancellationToken ct)
 	{
 		var outputDir = this.applicationContext.AppConfiguration.SummaryOutputPath;
 		Directory.CreateDirectory(outputDir);
 
 		var timestamp = DateTime.Now.ToString("yyyyMMddHHmmss");
-		var filePath = Path.Combine(outputDir, $"scraping-report-{timestamp}.txt");
+		var filePath = Path.Combine(outputDir, $"scraping-report-{season.Year}-{(int)season.SeasonID}-{timestamp}.txt");
 
 		var sb = new StringBuilder();
 
@@ -68,8 +69,9 @@ public class ScrapingReporter
 			sb.AppendLine($"[ExportFileName] {work.ExportFileName}");
 			sb.AppendLine("");
 			sb.AppendLine($"[OfficialSiteUrl] {work.OfficialSiteUrl}");
-			sb.AppendLine($"[WikiUrl] {work.WikiUrl}");
-			sb.AppendLine(Separator);
+				sb.AppendLine($"[WikiUrl] {work.WikiUrl}");
+				sb.AppendLine($"[IsImport] {work.IsImport}");
+				sb.AppendLine(Separator);
 		}
 
 		sb.AppendLine();

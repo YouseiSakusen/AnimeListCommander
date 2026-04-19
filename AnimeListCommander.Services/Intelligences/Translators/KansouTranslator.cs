@@ -22,11 +22,20 @@ public class KansouTranslator : TranslatorBase
 	private static readonly Regex bracketCleanRegex =
 		new(@"\p{Ps}[^\p{Pe}]*\p{Pe}", RegexOptions.Compiled);
 
+	/// <summary>日付を持たない局名ヘッダー行（例：「AT-X：」）を検出する正規表現。</summary>
+	private static readonly Regex stationHeaderRegex =
+		new(@"^(.+?)：\s*$", RegexOptions.Compiled);
+
+	/// <summary>話数サブエントリ（例：「第11話」「第12話、第13話」）を検出する正規表現。</summary>
+	private static readonly Regex episodeEntryRegex =
+		new(@"^第\d+", RegexOptions.Compiled);
+
 	/// <summary>放送局名の略称・正式名マッピング。</summary>
 	private static readonly IReadOnlyDictionary<string, string> stationNameMap =
 		new Dictionary<string, string>(StringComparer.Ordinal)
 		{
-			["MX"] = "TOKYO MX",
+			["MX"]   = "TOKYO MX",
+			["配信"] = "各配信サイト",
 		};
 
 	private record ParsedBroadcastEntry(string CleanStation, DateTime SortDateTime, DateTime ScheduleDate);
@@ -56,12 +65,8 @@ public class KansouTranslator : TranslatorBase
 		};
 
 		// SNSのみの作品は正規の公式サイト無しとして扱う
-		if (string.IsNullOrWhiteSpace(work.OfficialSiteUrl)
-			|| work.OfficialSiteUrl.Contains("x.com",       StringComparison.OrdinalIgnoreCase)
-			|| work.OfficialSiteUrl.Contains("twitter.com", StringComparison.OrdinalIgnoreCase))
-		{
+		if (isSnsOnlyUrl(work.OfficialSiteUrl))
 			work.IsImport = false;
-		}
 
 		applyBroadcastInfo(rawData, work);
 		return work;
@@ -84,7 +89,21 @@ public class KansouTranslator : TranslatorBase
 			}
 
 			applyBroadcastInfo(rawData, match);
-			this.logger.ZLogInfo($"Kansou: 補完完了: {match.Title}");
+
+				// Kansou の公式サイトが SNS のみの場合はインポート対象外とする
+				if (isSnsOnlyUrl(rawData.OfficialSiteUrl))
+				{
+					match.IsImport = false;
+				}
+				else if (!string.IsNullOrWhiteSpace(rawData.OfficialSiteUrl)
+					  && string.IsNullOrWhiteSpace(match.OfficialSiteUrl))
+				{
+					// Animate 側に URL がなく Kansou 側に有効な URL がある場合は補完する
+					match.OfficialSiteUrl = rawData.OfficialSiteUrl;
+					match.IsImport = true;
+				}
+
+				this.logger.ZLogInfo($"Kansou: 補完完了: {match.Title}");
 		}
 
 		return currentList;
@@ -113,7 +132,7 @@ public class KansouTranslator : TranslatorBase
 				: fastest.SortDateTime.Hour;
 			work.FirstBroadcast = $"{fastest.ScheduleDate:M/d}～ 毎週{fastest.ScheduleDate.ToString("ddd")}曜 {displayHour:D2}:{fastest.SortDateTime.Minute:D2}";
 			work.Broadcast      = fastest.CleanStation;
-			work.BroadcastText  = string.Join(", ", sorted.Skip(1).Select(e => e.CleanStation).Concat(undetermined));
+			work.BroadcastText  = string.Join(", ", sorted.Skip(1).Select(e => e.CleanStation).Concat(undetermined).Distinct());
 		}
 		else
 		{
@@ -131,10 +150,19 @@ public class KansouTranslator : TranslatorBase
 
 		var result = new List<ParsedBroadcastEntry>();
 		var currentYear = DateTime.Now.Year;
+		string? currentStation = null;
 
 		foreach (var line in rawText.Split('\n', StringSplitOptions.RemoveEmptyEntries))
 		{
 			if (line.Contains("--/--")) continue;
+
+			// 日付を持たない局名ヘッダー行（例：「AT-X：」）→ 直後のサブエントリ用に局名を記憶
+			var headerMatch = stationHeaderRegex.Match(line.Trim());
+			if (headerMatch.Success)
+			{
+				currentStation = normalizeStation(headerMatch.Groups[1].Value);
+				continue;
+			}
 
 			var m = broadcastLineRegex.Match(line);
 			if (!m.Success) continue;
@@ -162,6 +190,13 @@ public class KansouTranslator : TranslatorBase
 			var sortDateTime = baseDate.AddHours(hours).AddMinutes(minutes);
 
 			var cleanStation = normalizeStation(rawStation);
+
+			// 話数サブエントリ（例：「第11話」）は直前の局名ヘッダーに紐付け
+			if (episodeEntryRegex.IsMatch(cleanStation) && currentStation is not null)
+				cleanStation = currentStation;
+			else
+				currentStation = cleanStation;
+
 			result.Add(new ParsedBroadcastEntry(cleanStation, sortDateTime, scheduleDate));
 		}
 
@@ -191,4 +226,13 @@ public class KansouTranslator : TranslatorBase
 		var name = bracketCleanRegex.Replace(rawStation, "").Replace("系", "").Trim();
 		return stationNameMap.TryGetValue(name, out var mapped) ? mapped : name;
 	}
+
+	/// <summary>
+	/// 公式サイト URL が SNS のみ（または未設定）かどうかを判定します。
+	/// SNSのみの作品は正規の公式サイト無しとして扱います。
+	/// </summary>
+	private static bool isSnsOnlyUrl(string? url) =>
+		string.IsNullOrWhiteSpace(url)
+		|| url.Contains("x.com",       StringComparison.OrdinalIgnoreCase)
+		|| url.Contains("twitter.com", StringComparison.OrdinalIgnoreCase);
 }

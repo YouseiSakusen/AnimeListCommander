@@ -1,6 +1,7 @@
 using System.IO;
 using AnimeListCommander.Contexts;
 using AnimeListCommander.Helpers;
+using AnimeListCommander.Masters;
 using Microsoft.Extensions.Logging;
 using ZLogger;
 
@@ -12,6 +13,7 @@ namespace AnimeListCommander.Operations;
 public class OperationService
 {
 	private readonly OperationsRepository repository;
+	private readonly MasterRepository masterRepository;
 	private readonly ApplicationContext applicationContext;
 	private readonly ILogger<OperationService> logger;
 
@@ -19,14 +21,17 @@ public class OperationService
 	/// <see cref="OperationService"/> の新しいインスタンスを初期化します。
 	/// </summary>
 	/// <param name="repository">作戦リポジトリ。</param>
+	/// <param name="masterRepository">共通マスタリポジトリ。</param>
 	/// <param name="applicationContext">アプリケーションコンテキスト。</param>
 	/// <param name="logger">ロガー。</param>
 	public OperationService(
 		OperationsRepository repository,
+		MasterRepository masterRepository,
 		ApplicationContext applicationContext,
 		ILogger<OperationService> logger)
 	{
 		this.repository = repository;
+		this.masterRepository = masterRepository;
 		this.applicationContext = applicationContext;
 		this.logger = logger;
 	}
@@ -45,6 +50,17 @@ public class OperationService
 		if (works.Count == 0)
 		{
 			return;
+		}
+
+		// 放送局マスタをメモリ上で適用（DB は書き換えない）
+		var stationMasters = await this.masterRepository.GetBroadcastStationMastersAsync(ct);
+		foreach (var work in works)
+		{
+			if (!string.IsNullOrEmpty(work.Broadcast) && stationMasters.TryGetValue(work.Broadcast, out var master))
+			{
+				work.Broadcast = master.OfficialName;
+				work.MetaBroadcastKana = master.Kana;
+			}
 		}
 
 		var masters = await this.repository.GetWorkSettingItemMastersAsync(ct);

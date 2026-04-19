@@ -2,6 +2,7 @@ using System.Text.RegularExpressions;
 using AnimeListCommander.Contexts;
 using AnimeListCommander.Helpers;
 using AnimeListCommander.Intelligences.Translators;
+using AnimeListCommander.Masters;
 using HalationGhost.Utilities;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -47,6 +48,7 @@ public class IntelligenceService
 		var annictService = sp.GetRequiredService<AnnictService>();
 		var officialPageTitleService = sp.GetRequiredService<OfficialPageTitleService>();
 		var repository = sp.GetRequiredService<IntelligenceRepository>();
+		var masterRepository = sp.GetRequiredService<MasterRepository>();
 
 		var primaryTarget = targets.Single(t => t.IsPrimaryInput);
 		var secondaryTargets = targets.Where(t => !t.IsPrimaryInput).ToList();
@@ -79,10 +81,28 @@ public class IntelligenceService
 		this.logger.ZLogInfo($"公式サイトタイトルの取得が完了しました。");
 
 		this.logger.ZLogInfo($"全取得完了。合計 {masterList.Count} 件のアニメ作品を構築しました。");
+
+		var stationMasters = await masterRepository.GetBroadcastStationMastersAsync(ct);
+		foreach (var work in masterList)
+		{
+			if (string.IsNullOrEmpty(work.Broadcast))
+				continue;
+
+			if (stationMasters.TryGetValue(work.Broadcast, out var master))
+			{
+				work.Broadcast = master.OfficialName;
+				work.MetaBroadcastKana = master.Kana;
+			}
+			else
+			{
+				this.logger.ZLogCheck($"放送局マスタ未登録: {work.Broadcast}");
+			}
+		}
+
 		this.LastSaveResults = await repository.SaveAsync(season, masterList, ct);
 
 		var reporter = sp.GetRequiredService<ScrapingReporter>();
-		return await reporter.OutputReportAsync(this.LastSaveResults, ct);
+		return await reporter.OutputReportAsync(this.LastSaveResults, season, ct);
 	}
 
 	/// <summary>

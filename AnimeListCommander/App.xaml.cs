@@ -8,6 +8,7 @@ using Microsoft.Extensions.Logging;
 using Wpf.Ui;
 using AnimeListCommander.Contexts;
 using AnimeListCommander.Intelligences;
+using AnimeListCommander.Masters;
 using AnimeListCommander.Operations;
 using ZLogger;
 using ZLogger.Providers;
@@ -66,14 +67,15 @@ public partial class App
 				services.AddNavigationPage<AnimeScrapingPage, AnimeScrapingViewModel>();
 				services.AddNavigationPage<AnimeExportPage, AnimeExportViewModel>();
 				services.AddApplicationContext(context.Configuration);
-					services.AddHttpClient();
-					services.AddScoped<IntelligenceRepository>();
-						services.AddScoped<AnnictService>();
-						services.AddScoped<OfficialPageTitleService>();
-						services.AddScoped<ScrapingReporter>();
-						services.AddScoped<IntelligenceService>();
-					services.AddScoped<OperationsRepository>();
-						services.AddScoped<OperationService>();
+				services.AddHttpClient();
+				services.AddScoped<IntelligenceRepository>();
+				services.AddScoped<AnnictService>();
+				services.AddScoped<OfficialPageTitleService>();
+				services.AddScoped<ScrapingReporter>();
+				services.AddScoped<IntelligenceService>();
+				services.AddScoped<MasterRepository>();
+				services.AddScoped<OperationsRepository>();
+				services.AddScoped<OperationService>();
 			})
 			.Build();
 	}

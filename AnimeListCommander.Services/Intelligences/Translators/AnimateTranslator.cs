@@ -36,10 +36,17 @@ public class AnimateTranslator : TranslatorBase
 		new(@"(にて|ほか|など)+$", RegexOptions.Compiled);
 
 	/// <summary>
-	/// 放送局名から不要な付加情報（「系全国XX局ネット」「系」「全国」「XX局ネット」「「...」枠」「「...」」）を除去するための正規表現。
+	/// 放送局名から不要な付加情報（「公式」接頭辞・「系全国XX局ネット」「系列XX局ネット」「系」「全国」「XX局ネット」「「...」枠」「「...」」）を除去するための正規表現。
 	/// </summary>
 	private static readonly Regex stationNoiseRegex =
-		new(@"系全国\d+局ネット|系|\d+局ネット|全国|「[^」]*」枠?", RegexOptions.Compiled);
+		new(@"^公式|系全国\d+局ネット|系列\d+局ネット|系|\d+局ネット|全国|「[^」]*」枠?", RegexOptions.Compiled);
+
+	/// <summary>放送局名の略称・正式名マッピング。</summary>
+	private static readonly IReadOnlyDictionary<string, string> stationNameMap =
+		new Dictionary<string, string>(StringComparer.Ordinal)
+		{
+			["テレ東"] = "テレビ東京",
+		};
 
 	/// <summary>
 	/// 主題歌が OP / ED / 主題歌 / INSERT / 挿入歌 等のラベルで始まっているかを判定するための正規表現。
@@ -208,7 +215,7 @@ public class AnimateTranslator : TranslatorBase
 
 	/// <summary>
 	/// アニメイトのスケジュール文字列から放送局情報を解析し、<see cref="AnimeWork"/> に反映します。
-	/// 改行で分割し、1行目（日付）を無視して2行目以降から放送局を抽出します。
+	/// 「：」を含む行（日付・ステージ情報）を除外し、局名行のみを抽出します。
 	/// </summary>
 	/// <param name="rawText">アニメイトスケジュールの生テキスト（改行区切り）。</param>
 	/// <param name="work">値を設定する対象の <see cref="AnimeWork"/>。</param>
@@ -217,16 +224,16 @@ public class AnimateTranslator : TranslatorBase
 		var lines = rawText.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 		if (lines.Length < 2) return;
 
-		// 1行目（日付）をスキップし、2行目以降を「・」で結合
-		var stationLine = string.Join("・", lines[1..]);
+		// 「：」を含む行は日付・ステージ情報（例：「2nd STAGE：未発表」「1st STAGE：2026年4月～」）として除外
+		var stationLine = string.Join("・", lines[1..].Where(l => !l.Contains('：')));
+		if (string.IsNullOrWhiteSpace(stationLine)) return;
 
-		// 末尾語（「にて」「ほか」「など」）を除去
-		stationLine = stationEndRegex.Replace(stationLine, string.Empty).Trim();
-
-		// 「・」で分割して各放送局名から不要語を除去
+		// 「・」で分割して各放送局名ごとに末尾語・不要語を除去し、略称を正式名に変換
 		var stations = stationLine
 			.Split('・', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+			.Select(s => stationEndRegex.Replace(s, string.Empty).Trim())
 			.Select(s => stationNoiseRegex.Replace(s, string.Empty).Trim())
+			.Select(s => stationNameMap.TryGetValue(s, out var mapped) ? mapped : s)
 			.Where(s => !string.IsNullOrWhiteSpace(s))
 			.ToList();
 

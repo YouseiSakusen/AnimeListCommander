@@ -42,7 +42,7 @@ public class IntelligenceRepository
 		using var connection = new SQLiteConnection(this.applicationContext.ConnectionString);
 		await connection.OpenAsync(ct);
 
-		foreach (var work in works)
+		foreach (var work in works.Where(w => w.IsImport))
 		{
 			await using var transaction = await connection.BeginTransactionAsync(ct);
 			try
@@ -74,7 +74,12 @@ public class IntelligenceRepository
 				}
 				else
 				{
-					await this.touchWorkAsync(connection, transaction, existing.Id);
+					// IsImport はハッシュ対象外のため、差分がある場合は単独で UPDATE する
+					var newIsImport = work.IsImport ? 1 : 0;
+					if (existing.IsImport != newIsImport)
+						await this.updateIsImportAsync(connection, transaction, existing.Id, newIsImport);
+					else
+						await this.touchWorkAsync(connection, transaction, existing.Id);
 					result = new SaveResult { Work = work, Status = SaveStatus.Skipped };
 					this.logger.ZLogInfo($"[Skipped] {work.NormalizedTitle}");
 				}
@@ -109,6 +114,11 @@ public class IntelligenceRepository
 		/// レコードのコンテンツハッシュ値を取得または設定します。
 		/// </summary>
 		public string? ContentHash { get; set; }
+
+		/// <summary>
+		/// インポート対象フラグを取得または設定します（SQLite では 0/1 で保存）。
+		/// </summary>
+		public int IsImport { get; set; }
 	}
 
 	/// <summary>
@@ -125,6 +135,7 @@ public class IntelligenceRepository
 		sql.AppendLine(" SELECT ");
 		sql.AppendLine("      Id ");
 		sql.AppendLine("    , ContentHash ");
+		sql.AppendLine("    , IsImport ");
 		sql.AppendLine(" FROM AnimeWorks ");
 		sql.AppendLine(" WHERE Year = @Year ");
 		sql.AppendLine("   AND SeasonID = @SeasonID ");
@@ -436,6 +447,22 @@ public class IntelligenceRepository
 		await connection.ExecuteAsync(
 			" UPDATE AnimeWorks SET UpdatedAt = DATETIME('now', 'localtime') WHERE Id = @Id ",
 			new { Id = id },
+			transaction);
+	}
+
+	/// <summary>
+	/// 指定 ID のアニメ作品レコードの IsImport のみを更新します。
+	/// IsImport はコンテンツハッシュの対象外のため、Skipped 時の差分更新に使用します。
+	/// </summary>
+	/// <param name="connection">SQLite 接続。</param>
+	/// <param name="transaction">使用中のトランザクション。</param>
+	/// <param name="id">更新対象レコードの ID。</param>
+	/// <param name="isImport">更新後の IsImport 値（0 または 1）。</param>
+	private async Task updateIsImportAsync(SQLiteConnection connection, DbTransaction transaction, int id, int isImport)
+	{
+		await connection.ExecuteAsync(
+			" UPDATE AnimeWorks SET IsImport = @IsImport, UpdatedAt = DATETIME('now', 'localtime') WHERE Id = @Id ",
+			new { Id = id, IsImport = isImport },
 			transaction);
 	}
 }

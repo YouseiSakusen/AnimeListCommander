@@ -172,6 +172,9 @@ public class AnimeWork
 		var raw = this.Title + this.MyTitle + this.Company + this.Production
 			+ this.ThemeSongs + this.Original + this.BroadcastText
 			+ this.Broadcast + this.FirstBroadcast + this.OfficialSiteUrl + this.OfficialPageTitle
+			+ this.ExportFileName
+			+ this.MetaTitleKana
+			+ this.MetaBroadcastKana
 			+ castNames + staffEntries;
 		var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(raw));
 		return Convert.ToHexString(bytes).ToLowerInvariant();
