@@ -39,7 +39,7 @@ public class AnimateTranslator : TranslatorBase
 	/// 放送局名から不要な付加情報（「公式」接頭辞・「系全国XX局ネット」「系列XX局ネット」「系」「全国」「XX局ネット」「「...」枠」「「...」」）を除去するための正規表現。
 	/// </summary>
 	private static readonly Regex stationNoiseRegex =
-		new(@"^公式|系全国\d+局ネット|系列\d+局ネット|系|\d+局ネット|全国|「[^」]*」枠?", RegexOptions.Compiled);
+		new(@"^公式|系全国\d+局ネット|系列\d+局ネット|系列|系|\d+局ネット|全国|「[^」]*」枠?", RegexOptions.Compiled);
 
 	/// <summary>放送局名の略称・正式名マッピング。</summary>
 	private static readonly IReadOnlyDictionary<string, string> stationNameMap =
@@ -70,13 +70,11 @@ public class AnimateTranslator : TranslatorBase
 	/// <returns>変換後のアニメ作品情報。</returns>
 	protected override AnimeWork translateCore(ScrapedAnimeInformation rawData)
 	{
-		this.logger.ZLogInfo($"変換中: {rawData.Title}");
+		this.logger.ZLogInfo($"変換中: {rawData.AnimateHeaderTitle}");
 		var work = new AnimeWork
 		{
-			Title = rawData.Title,
+			Title = rawData.AnimateHeaderTitle,
 			AnimateHeaderTitle = rawData.AnimateHeaderTitle,
-			// タイトル内の英数字のみを半角化し、画像出力用のタイトルとして保持
-			MyTitle = JpStringConverter.ToHalfWidthAlphanumeric(rawData.Title),
 			OfficialSiteUrl = rawData.OfficialSiteUrl,
 			// 再放送（見出し由来）、または公式サイト URL が未設定の場合はインポート対象外とする
 			IsImport = !rawData.AnimateHeaderTitle.Contains("再放送") && !string.IsNullOrWhiteSpace(rawData.OfficialSiteUrl),

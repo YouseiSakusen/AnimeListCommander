@@ -77,9 +77,6 @@ public class AnimateScraper : IScraper
 			switch (label)
 			{
 				case "作品名":
-					// テーブル内のテキストをそのまま格納する（h2 による上書きは行わない）
-					info.Title = this.extractTextWithLineBreaks(th);
-					this.logger.ZLogInfo($"解析中: {info.Title}");
 					hasTitle = true;
 					break;
 				case "キャスト":

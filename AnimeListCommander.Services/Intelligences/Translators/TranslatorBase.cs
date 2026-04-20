@@ -16,7 +16,8 @@ public abstract class TranslatorBase : ITranslator
 		var work = this.translateCore(rawData);
 		work.NormalizedTitle = AnimeTitleNormalizer.Normalize(work.Title);
 		if (string.IsNullOrWhiteSpace(work.MyTitle))
-			work.MyTitle = JpStringConverter.ToHalfWidthAlphanumeric(work.Title);
+			work.MyTitle = JpStringConverter.ReplaceAsciiRomanNumerals(
+				JpStringConverter.ToHalfWidthAlphanumeric(work.Title));
 		this.applyCommonCleaning(work);
 		return work;
 	}

@@ -130,7 +130,7 @@ public class KansouTranslator : TranslatorBase
 			var displayHour = fastest.SortDateTime.Hour <= 4
 				? fastest.SortDateTime.Hour + 24
 				: fastest.SortDateTime.Hour;
-			work.FirstBroadcast = $"{fastest.ScheduleDate:M/d}～ 毎週{fastest.ScheduleDate.ToString("ddd")}曜 {displayHour:D2}:{fastest.SortDateTime.Minute:D2}";
+			work.FirstBroadcast = $"{fastest.ScheduleDate:M/d}～ 毎週{fastest.ScheduleDate.ToString("ddd")}曜{displayHour:D2}:{fastest.SortDateTime.Minute:D2}";
 			work.Broadcast      = fastest.CleanStation;
 			work.BroadcastText  = string.Join(", ", sorted.Skip(1).Select(e => e.CleanStation).Concat(undetermined).Distinct());
 		}
