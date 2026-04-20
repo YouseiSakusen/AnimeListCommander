@@ -1,4 +1,8 @@
 <Solution>
+  <Folder Name="/ソリューション項目/">
+    <File Path="README.ja.md" />
+    <File Path="README.md" />
+  </Folder>
   <Project Path="AnimeListCommander.Core/AnimeListCommander.Core.csproj" Id="0077d046-b5b2-4339-b264-de6f2e62559f" />
   <Project Path="AnimeListCommander.Entities/AnimeListCommander.Entities.csproj" Id="a89014c5-3e79-4857-9c6c-a2e333e9aabe" />
   <Project Path="AnimeListCommander.Services/AnimeListCommander.Services.csproj" Id="5c425f43-d06e-49fb-b942-5e7a2830e707" />

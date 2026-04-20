@@ -1,52 +1,55 @@
 # AnimeListCommander
 
+[🇯🇵 日本語版 (Japanese)](README.ja.md)
+
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![.NET](https://img.shields.io/badge/.NET-10.0-blueviolet.svg)](https://dotnet.microsoft.com/download)
+[![GIMP](https://img.shields.io/badge/GIMP-3.0%2B-orange.svg)](https://www.gimp.org/)
 
-## 📡 概要
-**AnimeListCommander** は、個人サイト「[halation ghost](https://elf-mission.net/)」で公開しているアニメ一覧画像を、効率的に生成するための支援アプリケーションおよびGIMPプラグイン群です。
+**AnimeListCommander** is a support application and a suite of GIMP plugins designed to efficiently generate anime list images for the personal website "[halation ghost](https://elf-mission.net/)".
 
-外部サイトから取得したアニメの情報を正規化し、**GIMPマクロ（Python-Fu）で画像を自動生成するための設定ファイル**を出力することを主目的としています。
+It normalizes anime metadata retrieved from external sources and outputs configuration files for **automatic image generation using GIMP macros (Python-Fu)**.
 
-## 🛠 主な機能
-- **メタデータ統合管理**: 各種ソースから取得したアニメ情報を一括管理。
-- **GIMPプラグイン連携**: 本アプリが出力した設定ファイルを読み込み、GIMP上で画像を自動配置・生成。
-- **高度な正規化**: 28時間制パース、全角半角の揺らぎ吸収、出力ファイル名の小文字統一。
-- **モダンな開発基盤**: .NET 10 を採用。
+## 🛠 Key Features
 
-## 🔌 GIMPプラグイン (`gimp-plugins`)
-最新の **GIMP 3.2.2 (Python 3.x API)** に完全準拠したプラグインを同梱しています。
+- **Integrated Metadata Management**: Centralized management of anime information gathered from various sources.
+- **GIMP Plugin Integration**: Automatically layouts and generates images in GIMP by reading configuration files exported from this app.
+- **Advanced Normalization**: Supports 28-hour clock parsing, handles full-width/half-width character fluctuations, and ensures consistent lowercase filenames.
+- **Modern Tech Stack**: Built on **.NET 10**.
 
-- **`create_single_anime_image`**: 単体のアニメ紹介画像を生成。
-- **`create_anime_list`**: 設定ファイルに基づき、複数のアニメ画像を格子状に自動配置。
-    - 放送時刻や放送局順での自動ソート機能を搭載。
-    - キャンバスサイズを自動計算し、背景の塗りつぶしまでを完結。
+## 🔌 GIMP Plugins (`gimp-plugins`)
 
-## 🏗 アーキテクチャ
-プロジェクト分割により、役割の分離と名前空間の衝突回避を両立させた構成を採用しています。
+Includes plugins fully compliant with the latest **GIMP 3.2.2 (Python 3.x API)**.
+
+- **`create_single_anime_image`**: Generates a single-title introduction image.
+    - **Smart Font Sizing**: Automatically adjusts font sizes based on cast count (14/15/16+).
+    - **Custom Logic**: Specific size overrides for designated keywords/voice actors (e.g., "Fairouz Ai").
+    - **Keyword-based Staff Layout**: Dynamically changes font size based on roles like "Director" or "Character Design".
+- **`create_anime_list`**: Automatically arranges multiple anime images in a grid based on settings.
+    - Auto-sorting by broadcast time or station.
+    - Automatic canvas sizing and background filling.
+
+## 🏗 Architecture
+
+The project is structured to separate concerns and avoid namespace collisions.
 
 - **Framework**: .NET 10 (WPF) / GIMP 3.0 Python API
-- **Architecture**: Generic Host による DI コンテナ活用
+- **Architecture**: Utilizes DI container with Generic Host.
 - **UI Library**: WpfUi
 - **Project Structure**:
-  - `Intelligences`: 外部情報の収集・解析（偵察）を担当。
-  - `Operations`: UIおよびアプリケーションの動作（展開）を制御。
-  - `gimp-plugins`: GIMP上での画像錬成（特殊作戦）を担当。
+  - `Intelligences`: Data collection and analysis (Recon).
+  - `Operations`: UI and application logic control (Deployment).
+  - `gimp-plugins`: Image generation on GIMP (Special Operations).
 
-## 🚀 開発手法
-本作は「AIとの共創」により、極めて高い開発スピードを実現しています。
+## 🚀 Development Methodology
 
-- **Commander (App)**: Geminiと相談しながら仕様を定義し、Claude 3.7 Sonnet (v4.6) に実装の99%を委ねて構築。
-- **Specialist (GIMP Macro)**: 複雑なGIMP 3.2.2 APIへの対応を含め、**Gemini (3 Flash/Pro) が全コードを100%執筆**。
+This project achieves extreme development speed through "Co-creation with AI".
 
-## 🚀 セットアップ (開発中)
-現在はソースコードのみの公開です。
+- **Commander (App)**: Specifications defined with Gemini; 99% of implementation by Claude 3.7 Sonnet.
+- **Specialist (GIMP Macro)**: **100% of the code written by Gemini (3 Flash/Pro)**, including support for the complex GIMP 3.2.2 API.
 
-### データベースについて
-- データの保存には SQLite を使用しています。
-- セットアップの簡略化のため、**起動時にテーブルを自動生成する初期化ロジック**への移行を計画中です。
+## 📜 License
 
-## 📜 ライセンス
 [Apache License 2.0](LICENSE)
 
 ---
