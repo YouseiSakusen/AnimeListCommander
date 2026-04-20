@@ -1,16 +1,10 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-"""
-AnimeListCommander - GIMP Plugin for Auto-arranging Anime Images
-Developed by Gemini for YouseiSakusen
-Target GIMP Version: 3.2.2 or later
-"""
-
 import os
 import sys
-import re
 import gi
+import unicodedata
 
 gi.require_version("Gimp", "3.0")
 gi.require_version("Gio", "2.0")
@@ -23,6 +17,23 @@ DEFAULT_MACRO_PATH = r"C:\path\to\your\macro-settings.txt"
 MACRO_SETTINGS_PATH = os.environ.get("GIMP_ANIME_MACRO_SETTINGS", DEFAULT_MACRO_PATH)
 WORK_SETTINGS_FILENAME = "work-settings.txt"
 
+def show_message_dialog(message, title="マクロ通知", is_error=False):
+    """メッセージを画面中央にポップアップさせ、同時にコンソールにも出力する"""
+    print(f"[{title}] {message}")
+    Gimp.message(message) 
+    dialog = Gtk.MessageDialog(
+        parent=None,
+        flags=Gtk.DialogFlags.MODAL,
+        message_type=Gtk.MessageType.ERROR if is_error else Gtk.MessageType.INFO,
+        buttons=Gtk.ButtonsType.OK,
+        text=title
+    )
+    dialog.format_secondary_text(message)
+    dialog.set_position(Gtk.WindowPosition.CENTER)
+    dialog.set_keep_above(True)
+    dialog.run()
+    dialog.destroy()
+
 def read_settings(path):
     data = {}
     if not os.path.exists(path): return data
@@ -30,191 +41,253 @@ def read_settings(path):
         with open(path, encoding="utf-8") as f:
             section = None
             for line in f:
-                line_stripped = line.strip()
-                if not line_stripped: continue
-                if line_stripped.startswith("#"):
-                    section = line_stripped[1:].strip()
+                line = line.rstrip()
+                if not line: continue
+                if line.startswith("#"):
+                    section = line[1:].strip()
                     data[section] = []
-                elif section is not None:
-                    data[section].append(line_stripped)
+                elif section: data[section].append(line)
     except: pass
     return data
 
-def parse_broadcast_date(date_str):
-    if not date_str or "未発表" in date_str:
-        return (99, 99, 99, 99)
-    match_date = re.search(r'(\d+)/(\d+)', date_str)
-    match_time = re.search(r'(\d+):(\d+)', date_str)
-    if not match_date: return (99, 99, 99, 99)
-    try:
-        month = int(match_date.group(1))
-        day = int(match_date.group(2))
-        hour = int(match_time.group(1)) if match_time else 0
-        minute = int(match_time.group(2)) if match_time else 0
-        return (month, day, hour, minute)
-    except: return (99, 99, 99, 99)
+def find_layer_by_name(image, name):
+    def recursive_search(layers):
+        if not layers: return None
+        for layer in layers:
+            if layer.get_name().strip() == name: return layer
+            if hasattr(layer, "get_children"):
+                found = recursive_search(layer.get_children())
+                if found: return found
+        return None
+    return recursive_search(image.get_layers())
 
-def ask_resize_question(message):
-    dialog = Gtk.MessageDialog(
-        parent=None,
-        flags=Gtk.DialogFlags.MODAL,
-        message_type=Gtk.MessageType.QUESTION,
-        buttons=Gtk.ButtonsType.YES_NO,
-        text="キャンバスのリサイズ確認"
-    )
-    dialog.format_secondary_text(message)
+def sanitize_filename(name):
+    table = str.maketrans({'\\': '￥', '/': '／', ':': '：', '*': '＊', '?': '？', '"': '”', '<': '＜', '>': '＞', '|': '｜'})
+    return name.translate(table)
+
+def get_unique_png_path(path):
+    if not os.path.exists(path): return path
+    base, ext = os.path.splitext(path)
+    counter = 1
+    while True:
+        new_path = f"{base}-{counter:02d}{ext}"
+        if not os.path.exists(new_path): return new_path
+        counter += 1
+
+def get_visual_weight(text):
+    weight = 0.0
+    for char in text:
+        if unicodedata.east_asian_width(char) in 'FWA':
+            weight += 1.0
+        else:
+            weight += 0.5
+    return weight
+
+def offset_layer_y(layer, offset_y):
+    _, x, y = layer.get_offsets()
+    layer.set_offsets(x, y + offset_y)
+
+def ask_to_save(image, display):
+    Gimp.displays_flush()
+    while Gtk.events_pending(): Gtk.main_iteration()
+    try:
+        proc = Gimp.get_pdb().lookup_procedure('gimp-display-set-zoom')
+        if proc:
+            cfg = proc.create_config()
+            cfg.set_property('display', display)
+            cfg.set_property('zoom-type', 0)
+            cfg.set_property('scale', 3.8)
+            proc.run(cfg)
+    except: pass
+    while Gtk.events_pending(): Gtk.main_iteration()
+    dialog = Gtk.MessageDialog(parent=None, flags=Gtk.DialogFlags.MODAL, message_type=Gtk.MessageType.QUESTION,
+                               buttons=Gtk.ButtonsType.YES_NO, text="反映が完了しました。")
+    dialog.format_secondary_text("pngを書き出し、xcfを保存しますか？")
     dialog.set_position(Gtk.WindowPosition.CENTER)
     dialog.set_keep_above(True)
     response = dialog.run()
     dialog.destroy()
     return response == Gtk.ResponseType.YES
 
-def find_layer_by_name(image, name):
-    for layer in image.get_layers():
-        if layer.get_name().strip() == name:
-            return layer
-    return None
+def get_flattened_drawable(file_path):
+    if not file_path or not os.path.exists(file_path): return None
+    try:
+        img = Gimp.file_load(Gimp.RunMode.NONINTERACTIVE, Gio.File.new_for_path(file_path))
+        return img, img.flatten()
+    except: return None
 
-class CreateAnimeListImage(Gimp.PlugIn):
+class CreateSingleAnimeImage(Gimp.PlugIn):
     def do_query_procedures(self):
-        return ["plug-in-create-anime-list-image"]
+        return ["plug-in-create-single-anime-image"]
 
     def do_create_procedure(self, name):
         procedure = Gimp.ImageProcedure.new(self, name, Gimp.PDBProcType.PLUGIN, self.run, None)
         procedure.set_image_types("*")
-        procedure.set_menu_label("アニメ画像一覧を自動配置")
+        procedure.set_menu_label("1作品ごとの一覧画像生成")
         procedure.add_menu_path("<Image>/Filters/アニメ画像一覧")
         return procedure
 
-    def run(self, procedure, run_mode, image, drawables, config, run_data):
-        # 1. メッセージ設定 (3.2.2 対応)
+    def run(self, procedure, run_mode, kv_image, drawables, config, run_data):
         msg_proc = Gimp.get_pdb().lookup_procedure('gimp-message-set-handler')
         if msg_proc:
             msg_cfg = msg_proc.create_config()
-            msg_cfg.set_property('handler', 2) # 2: ERROR_CONSOLE
+            msg_cfg.set_property('handler', 2)
             msg_proc.run(msg_cfg)
+
+        kv_file = kv_image.get_file()
+        if kv_file is None:
+            show_message_dialog("現在の画像が一度も保存されていません。\n名前を付けて保存してから実行してください。", "中断", True)
+            return procedure.new_return_values(Gimp.PDBStatusType.CANCEL, GLib.Error())
         
-        Gimp.displays_flush()
+        kv_path = kv_file.get_path()
+        kv_dir = os.path.dirname(kv_path)
+        
+        work_path = os.path.join(kv_dir, WORK_SETTINGS_FILENAME)
+        if not os.path.exists(work_path):
+            show_message_dialog(f"設定ファイルが見つかりません:\n{work_path}", "エラー", True)
+            return procedure.new_return_values(Gimp.PDBStatusType.CANCEL, GLib.Error())
+            
+        if not os.path.exists(MACRO_SETTINGS_PATH):
+            show_message_dialog(f"共通マクロ設定が見つかりません:\n{MACRO_SETTINGS_PATH}", "エラー", True)
+            return procedure.new_return_values(Gimp.PDBStatusType.CANCEL, GLib.Error())
+
+        work = read_settings(work_path)
         macro = read_settings(MACRO_SETTINGS_PATH)
-        
-        if not macro:
-            Gimp.message(f"設定ファイルが読み込めません:\n{MACRO_SETTINGS_PATH}\nパスが正しいか確認してください。")
-            return procedure.new_return_values(Gimp.PDBStatusType.EXECUTION_ERROR, GLib.Error())
+
+        export_filenames = work.get("EXPORT_FILENAME", [])
+        if not export_filenames or not export_filenames[0].strip():
+            show_message_dialog("出力ファイル名（EXPORT_FILENAME）が空です。\nwork-settings.txt を確認してください。", "エラー", True)
+            return procedure.new_return_values(Gimp.PDBStatusType.CANCEL, GLib.Error())
+
+        tpl_list = macro.get("TEMPLATE_XCF_PATH", [""])
+        template_path = tpl_list[0] if tpl_list else ""
+        if not template_path or not os.path.exists(template_path):
+            show_message_dialog(f"テンプレートが見つかりません:\n{template_path}", "エラー", True)
+            return procedure.new_return_values(Gimp.PDBStatusType.CANCEL, GLib.Error())
+
+        template_image = Gimp.file_load(Gimp.RunMode.NONINTERACTIVE, Gio.File.new_for_path(template_path))
+        display = Gimp.Display.new(template_image)
+
+        sync_targets = [("KEY_VISUAL", kv_path), ("PRODUCTION_LOGO", "COMPANY_LOGO_PATH", "UNRELEASED_COMPANY_LOGO"), ("BROADCAST_LOGO", "BROADCAST_LOGO_PATH", "UNRELEASED_BROADCAST_LOGO")]
+        for target in sync_targets:
+            l_key, path_key = target[0], target[1]
+            src_path = kv_path if l_key == "KEY_VISUAL" else ""
+            if l_key != "KEY_VISUAL":
+                dir_path = macro.get(path_key, [""])[0]
+                fn_list = work.get(l_key, [])
+                if dir_path and fn_list:
+                    fn = fn_list[0]
+                    src_path = os.path.join(dir_path, fn if fn.lower().endswith(".xcf") else fn + ".xcf")
+                if not src_path or not os.path.exists(src_path):
+                    src_path = macro.get(target[2], [""])[0]
+            
+            t_layer = find_layer_by_name(template_image, l_key)
+            if t_layer and src_path and os.path.exists(src_path):
+                res = get_flattened_drawable(src_path)
+                if res:
+                    tmp_img, src_drawable = res
+                    _, ox, oy = t_layer.get_offsets()
+                    new_l = Gimp.Layer.new_from_drawable(src_drawable, template_image)
+                    new_l.set_offsets(ox, oy)
+                    template_image.insert_layer(new_l, t_layer.get_parent(), template_image.get_item_position(t_layer))
+                    template_image.remove_layer(t_layer)
+                    new_l.set_name(l_key)
+                    tmp_img.delete()
+
+        text_map = {"TITLE": 20, "TITLE_RUBY": 8, "COMPANY": 9, "CAST": 10, "STAFF": 10, "ORIGINAL": 13, "THEME_SONG": 10, "FIRST_BROADCAST": 10, "BROADCAST_TEXT": 10}
+        has_ruby = len(work.get("TITLE_RUBY", [])) > 0
+        for key, base_size in text_map.items():
+            lines = work.get(key, [])
+            t_layer = find_layer_by_name(template_image, key)
+            if not t_layer: continue
+
+            if not lines and key in ["CAST", "STAFF"]:
+                lines = ["キャスト未発表" if key == "CAST" else "スタッフ未発表"]
+
+            if lines:
+                t_layer.set_visible(True)
+                if key == "STAFF":
+                    if lines[0] == "スタッフ未発表":
+                        t_layer.set_text(lines[0])
+                        fs = 10
+                    else:
+                        # 新キーワード判定ルール
+                        keywords = ["監督", "シリーズ構成", "デザイン", "キャラクター", "色彩"]
+                        markup_lines = []
+                        for l in lines:
+                            # いずれかのキーワードが含まれるかチェック
+                            size = 10 if any(kw in l for kw in keywords) else 13
+                            safe_text = l.replace("&","&amp;").replace("<","&lt;")
+                            markup_lines.append(f'<span size="{int(size * 1024)}">{safe_text}</span>')
+                        
+                        markup = "\n".join(markup_lines)
+                        try: t_layer.set_markup(markup)
+                        except: t_layer.set_text("\n".join(lines))
+                        fs = 10 
+                else:
+                    txt = "\n".join(lines[:16] if key=="CAST" else lines)
+                    t_layer.set_text(txt)
+                    fs = base_size
+                    if key=="TITLE":
+                        if has_ruby: 
+                            fs=15; offset_layer_y(t_layer, 7)
+                        else:
+                            w = get_visual_weight(txt)
+                            fs = next((s[1] for s in [(17.0,20),(17.5,19),(18.0,18),(18.5,17),(19.0,16),(21.0,15),(23.0,14),(25.0,13),(27.0,12),(29.0,11)] if w<=s[0]),10)
+                            if fs == 13: offset_layer_y(t_layer, 5)
+                            elif fs == 14: offset_layer_y(t_layer, 4)
+                    elif key=="THEME_SONG" and len(lines)==1: offset_layer_y(t_layer,5)
+                    elif key=="CAST":
+                        is_fairouz = any("ﾌｧｲﾙｰｽﾞあい" in l for l in lines)
+                        num_cast = len(lines)
+                        if is_fairouz: fs = 12
+                        elif lines[0] == "キャスト未発表": fs = 10
+                        elif num_cast == 15: fs = 11
+                        elif num_cast == 14: fs = 12
+                        elif num_cast >= 16: fs = 10
+                        else: fs = 13
+                    elif key=="ORIGINAL": fs=10 if len(lines)>=4 else 13
+                    elif key=="FIRST_BROADCAST": fs=9 if len("".join(lines)) >= 15 else 10
+                    t_layer.set_font_size(float(fs), Gimp.Unit.pixel())
+            else: 
+                t_layer.set_visible(False)
+
+        if not ask_to_save(template_image, display):
+            return procedure.new_return_values(Gimp.PDBStatusType.SUCCESS, GLib.Error())
 
         try:
-            root_path = macro["TARGET_ROOT_PATH"][0]
-            sort_mode = macro["SORT_MODE"][0]
-            header_path = macro["HEADER_XCF_PATH"][0]
-        except (KeyError, IndexError):
-            Gimp.message("設定エラー: macro-settings.txt の項目を確認してください。")
-            return procedure.new_return_values(Gimp.PDBStatusType.EXECUTION_ERROR, GLib.Error())
+            p_list = macro.get("OUTPUT_IMAGE_PATH", [""])
+            png_dir = p_list[0] if p_list else ""
+            if not png_dir: raise ValueError("OUTPUT_IMAGE_PATH未設定")
+            os.makedirs(png_dir, exist_ok=True)
 
-        anime_list = []
-        if not os.path.exists(root_path):
-            Gimp.message(f"エラー: 画像ルートフォルダが見つかりません\n{root_path}")
-            return procedure.new_return_values(Gimp.PDBStatusType.EXECUTION_ERROR, GLib.Error())
+            xcf_path = os.path.join(kv_dir, sanitize_filename(work.get("TITLE", ["untitled"])[0]) + ".xcf")
+            png_path = get_unique_png_path(os.path.join(png_dir, work.get("EXPORT_FILENAME", ["output"])[0] + ".png"))
 
-        folders = sorted(os.listdir(root_path))
-        
-        for folder_name in folders:
-            if folder_name.lower() == "header": continue
-            folder_path = os.path.join(root_path, folder_name)
-            if not os.path.isdir(folder_path): continue
+            template_image.set_file(Gio.File.new_for_path(xcf_path))
+            save_proc = Gimp.get_pdb().lookup_procedure('gimp-xcf-save')
+            save_cfg = save_proc.create_config()
+            save_cfg.set_property('image', template_image)
+            save_cfg.set_property('file', Gio.File.new_for_path(xcf_path))
+            save_proc.run(save_cfg)
             
-            work_path = os.path.join(folder_path, WORK_SETTINGS_FILENAME)
-            if not os.path.exists(work_path): continue
+            temp_copy = template_image.duplicate()
+            temp_drawable = temp_copy.flatten()
+            
+            export_proc = Gimp.get_pdb().lookup_procedure('gimp-file-save')
+            if export_proc:
+                exp_cfg = export_proc.create_config()
+                exp_cfg.set_property('run-mode', Gimp.RunMode.NONINTERACTIVE)
+                exp_cfg.set_property('image', temp_copy)
+                exp_cfg.set_property('file', Gio.File.new_for_path(png_path))
+                export_proc.run(exp_cfg)
+            
+            temp_copy.delete()
+            template_image.clean_all()
+            Gimp.displays_flush()
+        except Exception as e:
+            show_message_dialog(f"保存失敗: {str(e)}", "エラー", True)
 
-            xcf_path = os.path.join(folder_path, folder_name + ".xcf")
-            if not os.path.exists(xcf_path): continue
-
-            work_data = read_settings(work_path)
-            title_kana_list = work_data.get("META_TITLE_KANA", [])
-            if not title_kana_list: continue
-
-            broadcast_kana_list = work_data.get("META_BROADCAST_KANA", [])
-            has_bc_kana = len(broadcast_kana_list) > 0 and broadcast_kana_list[0].strip()
-
-            try:
-                title_kana = title_kana_list[0]
-                broadcast_kana = broadcast_kana_list[0] if has_bc_kana else ""
-                first_broadcast = work_data["FIRST_BROADCAST"][0] if work_data.get("FIRST_BROADCAST") else ""
-                anime_list.append({
-                    "title": folder_name, "xcf": xcf_path, "title_kana": title_kana,
-                    "broadcast_kana": broadcast_kana, "date_val": parse_broadcast_date(first_broadcast)
-                })
-            except: continue
-
-        if "放送局" in sort_mode:
-            def sort_broadcast(x):
-                kana = x["broadcast_kana"]
-                if not kana: return (2, "")
-                if kana.startswith("@") or kana.startswith("＠"): return (1, kana[1:])
-                return (0, kana)
-            anime_list.sort(key=lambda x: (sort_broadcast(x), x["title_kana"]))
-        else:
-            anime_list.sort(key=lambda x: (x["date_val"], x["title_kana"]))
-
-        # 配置処理
-        main_image = image
-        full_items = [{"title": "角見出し", "xcf": header_path}] + anime_list
-        item_w, item_h, margin = 330, 300, 2
-        
-        merge_proc = Gimp.get_pdb().lookup_procedure('gimp-image-merge-visible-layers')
-        
-        for i, item in enumerate(full_items):
-            row, col = i // 3, i % 3
-            pos_x = margin + (col * (item_w + margin))
-            pos_y = margin + (row * (item_h + margin))
-            if os.path.exists(item["xcf"]):
-                try:
-                    temp_img = Gimp.file_load(Gimp.RunMode.NONINTERACTIVE, Gio.File.new_for_path(item["xcf"]))
-                    merged_layer = None
-                    if merge_proc:
-                        merge_cfg = merge_proc.create_config()
-                        merge_cfg.set_property('image', temp_img)
-                        merge_cfg.set_property('merge-type', Gimp.MergeType.CLIP_TO_IMAGE)
-                        result = merge_proc.run(merge_cfg)
-                        if result.length() > 0:
-                            merged_layer = result.index(1)
-                    
-                    if merged_layer:
-                        new_layer = Gimp.Layer.new_from_drawable(merged_layer, main_image)
-                        main_image.insert_layer(new_layer, None, 0)
-                        new_layer.set_name(item["title"])
-                        new_layer.set_offsets(pos_x, pos_y)
-                    
-                    temp_img.delete()
-                except: pass
-
-        total_count = len(full_items)
-        Gimp.message(f"【完了】一覧配置終了: {total_count}件")
-        Gimp.displays_flush()
-
-        # リサイズ処理
-        total_rows = (total_count + 2) // 3
-        required_height = margin + (total_rows * (item_h + margin))
-        current_height = main_image.get_height()
-
-        do_resize = False
-        if required_height > current_height:
-            do_resize = True
-        elif required_height < current_height:
-            do_resize = ask_resize_question(f"キャンバスを {required_height}px に切り詰めますか？")
-
-        if do_resize:
-            main_image.resize(main_image.get_width(), required_height, 0, 0)
-            bg_layer = find_layer_by_name(main_image, "背景")
-            if bg_layer:
-                bg_layer.set_lock_position(False)
-                bg_layer.resize_to_image_size()
-                fill_proc = Gimp.get_pdb().lookup_procedure('gimp-drawable-edit-fill')
-                if fill_proc:
-                    fill_cfg = fill_proc.create_config()
-                    fill_cfg.set_property('drawable', bg_layer)
-                    fill_cfg.set_property('fill-type', Gimp.FillType.BACKGROUND_FILL)
-                    fill_proc.run(fill_cfg)
-
-        Gimp.displays_flush()
         return procedure.new_return_values(Gimp.PDBStatusType.SUCCESS, GLib.Error())
 
-Gimp.main(CreateAnimeListImage.__gtype__, sys.argv)
+Gimp.main(CreateSingleAnimeImage.__gtype__, sys.argv)
