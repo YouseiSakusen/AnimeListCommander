@@ -67,6 +67,10 @@ public class AnimateScraper : IScraper
 		// テーブル前の <h2> を先読みする（「再放送」等の注記は見出し側にのみ含まれる場合がある）
 		info.AnimateHeaderTitle = extractSectionHeading(document, table);
 
+		// 末尾の「 TV放送」を除去する（例：「コードギアス 奪還のロゼ TV放送」→「コードギアス 奪還のロゼ」）
+		if (info.AnimateHeaderTitle.EndsWith(" TV放送", StringComparison.Ordinal))
+			info.AnimateHeaderTitle = info.AnimateHeaderTitle[..^" TV放送".Length].TrimEnd();
+
 		foreach (var tr in table.QuerySelectorAll("tr"))
 		{
 			var td = tr.QuerySelector("td");
@@ -93,6 +97,9 @@ public class AnimateScraper : IScraper
 						break;
 					case "スケジュール":
 						info.AnimateScheduleRawText = this.extractTextWithLineBreaks(th);
+						break;
+					case "放送形態":
+						info.BroadcastType = th.TextContent.Trim();
 						break;
 				}
 		}

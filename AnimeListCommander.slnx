@@ -1,5 +1,6 @@
 <Solution>
   <Folder Name="/ソリューション項目/">
+    <File Path="halation-ghost-html.txt" />
     <File Path="README.ja.md" />
     <File Path="README.md" />
   </Folder>

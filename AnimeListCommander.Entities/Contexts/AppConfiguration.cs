@@ -24,4 +24,18 @@ public class AppConfiguration
 	/// サマリーの最低保持件数を取得します。
 	/// </summary>
 	public required int SummaryMinKeepCount { get; init; }
+
+	/// <summary>
+	/// 指定クールのエクスポートパスを返します。
+	/// </summary>
+	/// <param name="season">対象クール。</param>
+	/// <param name="fileName">ファイル名。省略時はクールのディレクトリパスを返します。</param>
+	/// <returns>エクスポート先のフルパス。</returns>
+	public string GetExportPath(Season season, string fileName = "")
+	{
+		var seasonDir = $"{season.Year}-{(int)season.SeasonID}";
+		return string.IsNullOrEmpty(fileName)
+			? Path.Combine(this.AnimeListRootPath, seasonDir)
+			: Path.Combine(this.AnimeListRootPath, seasonDir, fileName);
+	}
 }

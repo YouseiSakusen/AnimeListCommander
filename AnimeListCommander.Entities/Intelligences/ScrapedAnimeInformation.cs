@@ -51,4 +51,9 @@ public class ScrapedAnimeInformation
 	/// アニメイトタイムスの「スケジュール」行の生テキストを取得または設定します。
 	/// </summary>
 	public string AnimateScheduleRawText { get; set; } = string.Empty;
+
+	/// <summary>
+	/// アニメイトタイムスの「放送形態」行のテキストを取得または設定します。
+	/// </summary>
+	public string BroadcastType { get; set; } = string.Empty;
 }

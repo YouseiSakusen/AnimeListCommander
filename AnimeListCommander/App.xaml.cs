@@ -63,6 +63,7 @@ public partial class App
 					});
 				});
 				services.AddSingleton<IThemeService, ThemeService>();
+				services.AddSingleton<ISnackbarService, SnackbarService>();
 				services.AddNavigationWindow<MainWindow, MainWindowViewModel>();
 				services.AddNavigationPage<AnimeScrapingPage, AnimeScrapingViewModel>();
 				services.AddNavigationPage<AnimeExportPage, AnimeExportViewModel>();

@@ -69,9 +69,11 @@ public class ScrapingReporter
 			sb.AppendLine($"[ExportFileName] {work.ExportFileName}");
 			sb.AppendLine("");
 			sb.AppendLine($"[OfficialSiteUrl] {work.OfficialSiteUrl}");
-				sb.AppendLine($"[WikiUrl] {work.WikiUrl}");
-				sb.AppendLine($"[IsImport] {work.IsImport}");
-				sb.AppendLine(Separator);
+			sb.AppendLine($"[WikiUrl] {work.WikiUrl}");
+			sb.AppendLine($"[IsImport] {work.IsImport}");
+			sb.AppendLine();
+			sb.AppendLine();
+			sb.AppendLine(Separator);
 		}
 
 		sb.AppendLine();

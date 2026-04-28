@@ -30,16 +30,35 @@ public class AnimateTranslator : TranslatorBase
 		new(@"^(?:アニメーション制作|制作)：(.+)$", RegexOptions.Compiled);
 
 	/// <summary>
+	/// Original（原作）にセットする対象の行頭プレフィックス一覧。上から優先順に評価します。
+	/// </summary>
+	private static readonly IReadOnlyList<string> originalPrefixes =
+	[
+		"原作：",
+		"キャラクター原案：",
+		"原作イラスト：",
+		"漫画：",
+		"コミック：",
+		"コミカライズ：",
+	];
+
+	/// <summary>
 	/// スケジュール文字列の末尾語（「にて」「ほか」「など」）を除去するための正規表現。
 	/// </summary>
 	private static readonly Regex stationEndRegex =
 		new(@"(にて|ほか|など)+$", RegexOptions.Compiled);
 
 	/// <summary>
-	/// 放送局名から不要な付加情報（「公式」接頭辞・「系全国XX局ネット」「系列XX局ネット」「系」「全国」「XX局ネット」「「...」枠」「「...」」）を除去するための正規表現。
+	/// 放送局名から不要な付加情報（「公式」接頭辞・「系全国XX局ネット」「系列XX局ネット」「系列」「系」「全国」「XX局ネット」「「...」内?枠?」等）を除去するための正規表現。
 	/// </summary>
 	private static readonly Regex stationNoiseRegex =
-		new(@"^公式|系全国\d+局ネット|系列\d+局ネット|系列|系|\d+局ネット|全国|「[^」]*」枠?", RegexOptions.Compiled);
+		new("^公式|系全国\\d+局ネット|系列\\d+局ネット|系列|系|\\d+局ネット|全国|「[^」]*」(?:内|枠)*|\u201c[^\u201d]*\u201d(?:内|枠)*|\"[^\"]*\"(?:内|枠)*", RegexOptions.Compiled);
+
+	/// <summary>
+	/// ノイズ除去後に「内」が末尾に残存した場合に除去するための正規表現。
+	/// </summary>
+	private static readonly Regex stationTrailingNaiRegex =
+		new(@"内$", RegexOptions.Compiled);
 
 	/// <summary>放送局名の略称・正式名マッピング。</summary>
 	private static readonly IReadOnlyDictionary<string, string> stationNameMap =
@@ -77,7 +96,9 @@ public class AnimateTranslator : TranslatorBase
 			AnimateHeaderTitle = rawData.AnimateHeaderTitle,
 			OfficialSiteUrl = rawData.OfficialSiteUrl,
 			// 再放送（見出し由来）、または公式サイト URL が未設定の場合はインポート対象外とする
-			IsImport = !rawData.AnimateHeaderTitle.Contains("再放送") && !string.IsNullOrWhiteSpace(rawData.OfficialSiteUrl),
+			IsImport = !rawData.AnimateHeaderTitle.Contains("再放送")
+				&& !rawData.BroadcastType.Contains("特撮")
+				&& !string.IsNullOrWhiteSpace(rawData.OfficialSiteUrl),
 		};
 
 		parseThemeSongs(rawData.ThemeSong, work);
@@ -155,12 +176,13 @@ public class AnimateTranslator : TranslatorBase
 				continue;
 			}
 
-			// 2. 原作行の判定 → Original へ（Staffs には入れない）
-			if (line.StartsWith("原作：", StringComparison.Ordinal))
-			{
-				work.Original = line["原作：".Length..].Trim();
-				continue;
-			}
+			// 2. 原作行の判定 → Original へ（常に上書き、Staffs には入れない）
+				var originalPrefix = originalPrefixes.FirstOrDefault(p => line.StartsWith(p, StringComparison.Ordinal));
+				if (originalPrefix is not null)
+				{
+					work.Original = line[originalPrefix.Length..].Trim();
+					continue;
+				}
 
 			// 3. それ以外 → 「役職：氏名」の形式で分割して Staffs へ
 			var parts = line.Split('：', 2);
@@ -226,11 +248,12 @@ public class AnimateTranslator : TranslatorBase
 		var stationLine = string.Join("・", lines[1..].Where(l => !l.Contains('：')));
 		if (string.IsNullOrWhiteSpace(stationLine)) return;
 
-		// 「・」で分割して各放送局名ごとに末尾語・不要語を除去し、略称を正式名に変換
+		// 「・」で分割して各放送局名ごとに末尾語・ノイズ・残存「内」を除去し、略称を正式名に変換
 		var stations = stationLine
 			.Split('・', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
 			.Select(s => stationEndRegex.Replace(s, string.Empty).Trim())
 			.Select(s => stationNoiseRegex.Replace(s, string.Empty).Trim())
+			.Select(s => stationTrailingNaiRegex.Replace(s, string.Empty).Trim())
 			.Select(s => stationNameMap.TryGetValue(s, out var mapped) ? mapped : s)
 			.Where(s => !string.IsNullOrWhiteSpace(s))
 			.ToList();

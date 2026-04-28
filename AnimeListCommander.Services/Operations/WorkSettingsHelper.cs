@@ -1,4 +1,3 @@
-using System.IO;
 using System.Text;
 using Microsoft.Extensions.Logging;
 using ZLogger;
@@ -52,15 +51,25 @@ public static class WorkSettingsHelper
 
 		var template = await File.ReadAllTextAsync(templatePath, encoding);
 		var html = template
+			.Replace("{AnimeWorkId}", work.Id.ToString())
 			.Replace("{MyTitle}", work.MyTitle)
 			.Replace("{OfficialSiteUrl}", work.OfficialSiteUrl)
 			.Replace("{OfficialPageTitle}", work.OfficialPageTitle);
+
+		await writer.WriteLineAsync("#AnimeWorkId");
+		await writer.WriteLineAsync(work.Id.ToString());
+		await writer.WriteLineAsync();
 
 		await writer.WriteLineAsync("#SITE_HTML");
 		await writer.WriteLineAsync(html);
 		await writer.WriteLineAsync();
 	}
 
+	/// <summary>
+	/// 既存の設定ファイルをタイムスタンプ付きのファイル名にリネームしてバックアップします。
+	/// ファイルが存在しない場合は何もしません。
+	/// </summary>
+	/// <param name="settingsPath">バックアップ対象の設定ファイルパス。</param>
 	private static void backupIfExists(string settingsPath)
 	{
 		if (!File.Exists(settingsPath))
@@ -76,6 +85,14 @@ public static class WorkSettingsHelper
 		File.Move(settingsPath, backupPath, overwrite: true);
 	}
 
+	/// <summary>
+	/// マスタ設定項目に対応する出力行を列挙します。
+	/// 上書き禁止かつ既存値がある場合は既存値を、それ以外はスクレイピング結果を使用します。
+	/// </summary>
+	/// <param name="master">出力対象の作品設定項目マスタ。</param>
+	/// <param name="work">出力元のアニメ作品データ。</param>
+	/// <param name="existingValues">既存の設定ファイルから読み込んだヘッダーと値のマッピング。</param>
+	/// <returns>設定ファイルに書き出す行のシーケンス。</returns>
 	private static IEnumerable<string> resolveLines(
 		WorkSettingItem master,
 		AnimeWork work,
@@ -135,6 +152,12 @@ public static class WorkSettingsHelper
 		}
 	}
 
+	/// <summary>
+	/// ヘッダー名に対応するアニメ作品データの値を返します。
+	/// </summary>
+	/// <param name="headerName">設定ファイルのヘッダー名（例：<c>#TITLE</c>）。</param>
+	/// <param name="work">値の取得元となるアニメ作品データ。</param>
+	/// <returns>ヘッダーに対応する文字列値。対応するヘッダーが存在しない場合は空文字を返します。</returns>
 	private static string resolveValue(string headerName, AnimeWork work)
 	{
 		switch (headerName)
@@ -146,9 +169,28 @@ public static class WorkSettingsHelper
 			// 外部ツール（画像生成マクロ等）のテンプレートとして項目が必要なため、
 			// 未設定の場合もデフォルト値を出力する。
 			case "#THEME_SONG":
-				return string.IsNullOrWhiteSpace(work.ThemeSongs)
-					? "OP：\nED："
-					: work.ThemeSongs;
+			{
+				var lines = string.IsNullOrWhiteSpace(work.ThemeSongs)
+					? []
+					: work.ThemeSongs.Split(["\r\n", "\n"], StringSplitOptions.None);
+
+				if (lines.Length == 0)
+					return "OP：\nED：";
+
+				if (lines.Length >= 2)
+					return work.ThemeSongs;
+
+				// 1行のみ
+				var single = lines[0];
+				if (single.StartsWith("主題歌："))
+					return single;
+				if (single.StartsWith("OP："))
+					return single + "\nED：";
+				if (single.StartsWith("ED："))
+					return "OP：\n" + single;
+
+				return single;
+			}
 			case "#ORIGINAL":           return work.Original;
 			case "#BROADCAST_TEXT":     return work.BroadcastText;
 			case "#BROADCAST_LOGO":     return work.Broadcast;
@@ -160,7 +202,13 @@ public static class WorkSettingsHelper
 		}
 	}
 
-	private static async Task<Dictionary<string, List<string>>> parseExistingSettingsAsync(string settingsPath)
+	/// <summary>
+	/// 既存の設定ファイルを読み込み、ヘッダーをキー・対応する行リストを値とする辞書を返します。
+	/// ファイルが存在しない場合は空の辞書を返します。
+	/// </summary>
+	/// <param name="settingsPath">読み込み対象の設定ファイルパス。</param>
+	/// <returns>ヘッダー名と行リストのマッピング。</returns>
+	private static async ValueTask<Dictionary<string, List<string>>> parseExistingSettingsAsync(string settingsPath)
 	{
 		var result = new Dictionary<string, List<string>>();
 		if (!File.Exists(settingsPath))
@@ -197,6 +245,11 @@ public static class WorkSettingsHelper
 		return result;
 	}
 
+	/// <summary>
+	/// 指定した行が設定ファイルのヘッダー行（<c>#</c> で始まり英大文字とアンダースコアのみで構成される行）かどうかを判定します。
+	/// </summary>
+	/// <param name="line">判定対象の行文字列。</param>
+	/// <returns>ヘッダー行の場合は <see langword="true"/>。</returns>
 	private static bool isHeaderLine(string line) =>
 		line.Length > 1 && line[0] == '#' && line[1..].All(c => char.IsAsciiLetterUpper(c) || c == '_');
 }

@@ -14,6 +14,7 @@ public abstract class TranslatorBase : ITranslator
 	public AnimeWork Translate(ScrapedAnimeInformation rawData)
 	{
 		var work = this.translateCore(rawData);
+		work.Title = JpStringConverter.ReplaceAsciiRomanNumerals(work.Title);
 		work.NormalizedTitle = AnimeTitleNormalizer.Normalize(work.Title);
 		if (string.IsNullOrWhiteSpace(work.MyTitle))
 			work.MyTitle = JpStringConverter.ReplaceAsciiRomanNumerals(

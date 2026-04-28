@@ -18,10 +18,12 @@ public partial class MainWindow : FluentWindow, INavigationWindow
 	public MainWindow(
 		MainWindowViewModel viewModel,
 		INavigationViewPageProvider navigationViewPageProvider,
-		INavigationService navigationService)
+		INavigationService navigationService,
+		ISnackbarService snackbarService)
 	{
 		this.DataContext = viewModel;
 		this.InitializeComponent();
+		snackbarService.SetSnackbarPresenter(this.SnackbarPresenter);
 		this.SetPageService(navigationViewPageProvider);
 		navigationService.SetNavigationControl(this.RootNavigation);
 	}
