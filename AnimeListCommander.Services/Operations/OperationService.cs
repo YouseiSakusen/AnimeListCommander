@@ -195,19 +195,21 @@ public class OperationService
 			return HalationGhostHtmlConvertResult.OrderFileNotFound;
 
 		// AnimeListOrder.txt 読み込み（1行目はヘッダーとして無視）
+		// i=0 は見出し画像枠のためダミー値 0 を先頭に挿入してオフセットを合わせる
 		var orderLines = await File.ReadAllLinesAsync(orderFilePath, ct);
 		var orderedIds = orderLines.Skip(1)
 			.Select(line => line.Trim())
 			.Where(line => !string.IsNullOrEmpty(line))
 			.Select(int.Parse)
+			.Prepend(0)
 			.ToList();
 
 		// 作品データをIDキーの Dictionary で準備
 		var works = await this.repository.GetAnimeWorksBySeasonAsync(season, ct);
 		var workMap = works.ToDictionary(w => w.Id);
 
-		// IDリスト内に存在しない作品IDがある場合は中断
-		foreach (var id in orderedIds)
+		// IDリスト内に存在しない作品IDがある場合は中断（ダミー値 0 はスキップ）
+		foreach (var id in orderedIds.Where(id => id != 0))
 		{
 			if (!workMap.ContainsKey(id))
 			{
@@ -232,24 +234,32 @@ public class OperationService
 			var right = left + AnimeWorkTitleWidth;
 			var bottom = top + AnimeWorkTitleHeight;
 
-			areaSb.AppendLine($"<area shape=\"rect\" coords=\"{left},{top},{right},{bottom}\" href=\"{work.OfficialSiteUrl}\" alt=\"{work.MyTitle}\" title=\"{work.MyTitle}\">");
+			areaSb.AppendLine($"<area shape=\"rect\" coords=\"{left},{top},{right},{bottom}\" href=\"{work.OfficialSiteUrl}\" target=\"_blank\" alt=\"{work.MyTitle}\" title=\"{work.MyTitle}\">");
 		}
 
-		// clickableMap.txt 読み込みと置換
+		// clickableMap.txt 読み込み
 		var mapContent = await File.ReadAllTextAsync(mapFilePath, ct);
 
-		// usemap 属性の置換
-		mapContent = Regex.Replace(mapContent, @"usemap=""#[^""]*""", $"usemap=\"#{mapName}\"");
+		// <a> タグに target="_blank" が存在しない場合のみ追加
+		if (!Regex.IsMatch(mapContent, @"<a\s[^>]*target=""_blank"""))
+			mapContent = Regex.Replace(mapContent, @"(<a\b[^>]*?)\s*>", "$1 target=\"_blank\">");
 
-		// <map name="..."> の置換
-		mapContent = Regex.Replace(mapContent, @"<map\s+name=""[^""]*"">", $"<map name=\"{mapName}\">");
+		// <img> タグに usemap 属性を付与（既存あれば更新、なければ /> の直前に追加）
+		if (Regex.IsMatch(mapContent, @"usemap=""#[^""]*"""))
+			mapContent = Regex.Replace(mapContent, @"usemap=""#[^""]*""", $"usemap=\"#{mapName}\"");
+		else
+			mapContent = Regex.Replace(mapContent, @"(<img\b[^>]*?)\s*/>", $"$1 usemap=\"#{mapName}\" />");
 
-		// <map>～</map> 間の既存 <area> タグをすべて破棄し、生成した area タグ群で置換
-		mapContent = Regex.Replace(
-			mapContent,
-			@"(<map\s+name=""[^""]*"">).*?(</map>)",
-			$"$1{Environment.NewLine}{areaSb}$2",
-			RegexOptions.Singleline);
+		// 既存の <map>～</map> ブロックを除去（再実行時の重複防止）
+		mapContent = Regex.Replace(mapContent, @"\r?\n\r?\n<map\s[^>]*>.*?</map>", string.Empty, RegexOptions.Singleline);
+
+		// </a> の後に空行を1つ挟んで <map>～</map> ブロックを追記
+		var mapBlock = new StringBuilder();
+		mapBlock.AppendLine($"<map name=\"{mapName}\">");
+		mapBlock.Append(areaSb);
+		mapBlock.Append("</map>");
+
+		mapContent = Regex.Replace(mapContent, @"(</a>)", $"$1{Environment.NewLine}{Environment.NewLine}{mapBlock}");
 
 		await File.WriteAllTextAsync(mapFilePath, mapContent, ct);
 

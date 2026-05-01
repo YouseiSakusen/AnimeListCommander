@@ -153,6 +153,14 @@ public class AnimeExportViewModel : IDisposable
 					null,
 					TimeSpan.Zero);
 				break;
+			case HalationGhostHtmlConvertResult.AnimeWorkIdNotFound:
+				this.snackbarService.Show(
+					"作品ID未検出",
+					"並び順ファイルに記載された作品IDがDBに存在しません。",
+					ControlAppearance.Danger,
+					null,
+					TimeSpan.Zero);
+				break;
 			case HalationGhostHtmlConvertResult.Success:
 				this.snackbarService.Show(
 					"クリッカブルマップ生成完了",

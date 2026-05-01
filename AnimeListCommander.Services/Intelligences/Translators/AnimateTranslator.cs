@@ -27,7 +27,7 @@ public class AnimateTranslator : TranslatorBase
 	/// 「制作：」または「アニメーション制作：」で始まる行にマッチします。
 	/// </summary>
 	private static readonly Regex productionRegex =
-		new(@"^(?:アニメーション制作|制作)：(.+)$", RegexOptions.Compiled);
+		new(@"^(?:アニメーション制作|制作)\s*[：::]\s*(.+)$", RegexOptions.Compiled);
 
 	/// <summary>
 	/// Original（原作）にセットする対象の行頭プレフィックス一覧。上から優先順に評価します。
@@ -176,13 +176,17 @@ public class AnimateTranslator : TranslatorBase
 				continue;
 			}
 
-			// 2. 原作行の判定 → Original へ（常に上書き、Staffs には入れない）
-				var originalPrefix = originalPrefixes.FirstOrDefault(p => line.StartsWith(p, StringComparison.Ordinal));
-				if (originalPrefix is not null)
+			// 2. 原作行の判定 → Original が未設定の場合のみセット（Staffs には入れない）
+			//    Original が既にセット済みの場合はそのまま Staffs へ追加する
+			var originalPrefix = originalPrefixes.FirstOrDefault(p => line.StartsWith(p, StringComparison.Ordinal));
+			if (originalPrefix is not null)
+			{
+				if (string.IsNullOrEmpty(work.Original))
 				{
 					work.Original = line[originalPrefix.Length..].Trim();
 					continue;
 				}
+			}
 
 			// 3. それ以外 → 「役職：氏名」の形式で分割して Staffs へ
 			var parts = line.Split('：', 2);
