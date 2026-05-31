@@ -70,6 +70,7 @@ public partial class App
 				services.AddApplicationContext(context.Configuration);
 				services.AddHttpClient();
 				services.AddScoped<IntelligenceRepository>();
+				services.AddScoped<Coordinator>();
 				services.AddScoped<AnnictService>();
 				services.AddScoped<OfficialPageTitleService>();
 				services.AddScoped<ScrapingReporter>();

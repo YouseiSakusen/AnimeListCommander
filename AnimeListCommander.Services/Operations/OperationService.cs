@@ -1,6 +1,7 @@
 using AnimeListCommander.Contexts;
 using AnimeListCommander.Helpers;
 using AnimeListCommander.Masters;
+using AnimeListCommander;
 using Microsoft.Extensions.Logging;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -102,12 +103,23 @@ public class OperationService
 
 		var masters = await this.repository.GetWorkSettingItemMastersAsync(ct);
 
+		var existingMap = await this.ScanExistingWorkDirectoriesAsync(season);
+
 		foreach (var work in works)
 		{
-			var directoryName = string.IsNullOrWhiteSpace(work.DirectoryName)
-				? AnimeTitleNormalizer.ToSafeDirectoryName(work.MyTitle)
-				: work.DirectoryName;
-			var outputPath = this.applicationContext.AppConfiguration.GetExportPath(season, directoryName);
+			string outputPath;
+
+			if (existingMap.TryGetValue(work.Id, out var existingDir))
+			{
+				outputPath = existingDir;
+			}
+			else
+			{
+				var directoryName = string.IsNullOrWhiteSpace(work.DirectoryName)
+					? AnimeTitleNormalizer.ToSafeDirectoryName(work.MyTitle)
+					: work.DirectoryName;
+				outputPath = this.applicationContext.AppConfiguration.GetExportPath(season, directoryName);
+			}
 
 			this.logger.ZLogInformation($"[Deploy] {work.NormalizedTitle} => {outputPath}");
 
@@ -115,7 +127,37 @@ public class OperationService
 		}
 	}
 
-	/// <summary>アニメリストHTMLのファイル名。</summary>
+	/// <summary>
+	/// 出力先ルート直下のフォルダをスキャンし、AnimeWorkId とフォルダパスのマッピングを返します。
+	/// </summary>
+	/// <param name="season">対象クール。</param>
+	/// <returns>AnimeWorkId をキー、フォルダのフルパスを値とする辞書。</returns>
+	private async ValueTask<Dictionary<int, string>> ScanExistingWorkDirectoriesAsync(Season season)
+	{
+		var result = new Dictionary<int, string>();
+		var rootPath = this.applicationContext.AppConfiguration.GetExportPath(season);
+
+		if (!Directory.Exists(rootPath))
+			return result;
+
+		foreach (var dir in Directory.EnumerateDirectories(rootPath))
+		{
+			try
+			{
+				var settingsPath = WorkSettingsHelper.GetSettingsPath(dir);
+				var map = await WorkSettingsHelper.ParseWorkSettingsAsync(settingsPath);
+				var id = WorkSettingsHelper.GetAnimeWorkId(map);
+				if (id.HasValue)
+					result[id.Value] = dir;
+			}
+			catch (Exception ex)
+			{
+				this.logger.ZLogWarning($"フォルダスキャン中にエラーが発生しました。スキップします。(dir={dir}, ex={ex.Message})");
+			}
+		}
+
+		return result;
+	}
 	private const string AnimeListHtmlFileName = "animeListHtml.txt";
 
 	/// <summary>

@@ -45,6 +45,11 @@ public class IntelligenceService
 		using var scope = this.scopeFactory.CreateScope();
 		var sp = scope.ServiceProvider;
 
+		var coordinator = sp.GetRequiredService<Coordinator>();
+		this.logger.ZLogInfo($"前処理（Coordinator）を開始します。");
+		var existingWorks = await coordinator.CoordinateAsync(season, ct);
+		this.logger.ZLogInfo($"前処理（Coordinator）が完了しました。");
+
 		var annictService = sp.GetRequiredService<AnnictService>();
 		var officialPageTitleService = sp.GetRequiredService<OfficialPageTitleService>();
 		var repository = sp.GetRequiredService<IntelligenceRepository>();
@@ -102,7 +107,7 @@ public class IntelligenceService
 		this.LastSaveResults = await repository.SaveAsync(season, masterList, ct);
 
 		var reporter = sp.GetRequiredService<ScrapingReporter>();
-		return await reporter.OutputReportAsync(this.LastSaveResults, season, ct);
+		return await reporter.OutputReportAsync(this.LastSaveResults, masterList, season, ct);
 	}
 
 	/// <summary>

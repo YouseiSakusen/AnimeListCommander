@@ -101,7 +101,90 @@ public class IntelligenceRepository
 	}
 
 	/// <summary>
-	/// 既存レコードの照合に使用する内部データクラスです。
+	/// 指定 ID のアニメ作品レコードの Title のみを更新します。
+	/// </summary>
+	/// <param name="id">更新対象レコードの ID。</param>
+	/// <param name="title">更新後のタイトル。</param>
+	/// <param name="ct">キャンセルトークン。</param>
+	/// <returns>更新件数。</returns>
+	public async Task<int> UpdateTitleAsync(int id, string title, CancellationToken ct)
+	{
+		using var connection = new SQLiteConnection(this.applicationContext.ConnectionString);
+		await connection.OpenAsync(ct);
+
+		return await connection.ExecuteAsync(
+			"""
+			UPDATE AnimeWorks
+			   SET Title = @Title
+				 , UpdatedAt = DATETIME('now', 'localtime')
+			 WHERE Id = @Id
+			""",
+			new { Id = id, Title = title });
+	}
+
+	/// <summary>
+	/// Work-Settings.txt の内容を指定 ID のアニメ作品レコードに同期します。
+	/// MyTitle / Original / ExportFileName / Kana系は DB 上で NULL または空文字の場合のみ更新します。
+	/// </summary>
+	/// <param name="id">更新対象レコードの ID。</param>
+	/// <param name="myTitle">画像用タイトル（#TITLE）。</param>
+	/// <param name="exportFileName">エクスポートファイル名（#EXPORT_FILENAME）。</param>
+	/// <param name="metaTitleKana">メタタイトルかな（#META_TITLE_KANA）。</param>
+	/// <param name="metaBroadcastKana">メタ放送かな（#META_BROADCAST_KANA）。</param>
+	/// <param name="original">原作（#ORIGINAL）。</param>
+	/// <param name="ct">キャンセルトークン。</param>
+	/// <returns>更新件数。</returns>
+	public async Task<int> UpdateFromWorkSettingsAsync(
+		int id,
+		string? myTitle,
+		string? exportFileName,
+		string? metaTitleKana,
+		string? metaBroadcastKana,
+		string? original,
+		CancellationToken ct)
+	{
+		using var connection = new SQLiteConnection(this.applicationContext.ConnectionString);
+		await connection.OpenAsync(ct);
+
+		return await connection.ExecuteAsync(
+			"""
+			UPDATE AnimeWorks
+			   SET MyTitle = CASE
+								WHEN MyTitle IS NULL OR MyTitle = '' THEN @MyTitle
+								ELSE MyTitle
+							 END
+				 , ExportFileName = CASE
+									   WHEN ExportFileName IS NULL OR ExportFileName = '' THEN @ExportFileName
+									   ELSE ExportFileName
+									END
+				 , MetaTitleKana = CASE
+									  WHEN MetaTitleKana IS NULL OR MetaTitleKana = '' THEN @MetaTitleKana
+									  ELSE MetaTitleKana
+								   END
+				 , MetaBroadcastKana = CASE
+										  WHEN MetaBroadcastKana IS NULL OR MetaBroadcastKana = '' THEN @MetaBroadcastKana
+										  ELSE MetaBroadcastKana
+									   END
+				 -- Original は手動入力が前提のため、既存値がある場合は上書きしない
+				 , Original = CASE
+								  WHEN Original IS NULL OR Original = '' THEN @Original
+								  ELSE Original
+							   END
+				 , UpdatedAt = DATETIME('now', 'localtime')
+			 WHERE Id = @Id
+			""",
+			new
+			{
+				Id = id,
+				MyTitle = myTitle ?? string.Empty,
+				ExportFileName = exportFileName ?? string.Empty,
+				MetaTitleKana = metaTitleKana ?? string.Empty,
+				MetaBroadcastKana = metaBroadcastKana ?? string.Empty,
+				Original = original ?? string.Empty,
+			});
+	}
+
+	/// <summary>
 	/// </summary>
 	private sealed class ExistingWork
 	{
@@ -239,15 +322,15 @@ public class IntelligenceRepository
 				work.ExportFileName,
 				work.MetaTitleKana,
 				work.MetaBroadcastKana,
-						work.OfficialSiteUrl,
-							work.OfficialPageTitle,
-							work.WikiUrl,
-							DirectoryName = directoryName,
-							ContentHash = hash,
-							IsExport = work.IsExport ? 1 : 0,
-							IsImport = work.IsImport ? 1 : 0,
-						},
-						transaction);
+				work.OfficialSiteUrl,
+				work.OfficialPageTitle,
+				work.WikiUrl,
+				DirectoryName = directoryName,
+				ContentHash = hash,
+				IsExport = work.IsExport ? 1 : 0,
+				IsImport = work.IsImport ? 1 : 0,
+			},
+			transaction);
 
 					return await connection.QuerySingleAsync<long>("SELECT last_insert_rowid();", transaction: transaction);
 				}
@@ -355,18 +438,33 @@ public class IntelligenceRepository
 		sql.AppendLine("    SET SortIndex = @SortIndex ");
 		sql.AppendLine("      , Title = @Title ");
 		sql.AppendLine("      , AnimateHeaderTitle = @AnimateHeaderTitle ");
-		sql.AppendLine("      , MyTitle = @MyTitle ");
+		sql.AppendLine("      , MyTitle = CASE ");
+		sql.AppendLine("                     WHEN MyTitle IS NULL OR MyTitle = '' THEN @MyTitle ");
+		sql.AppendLine("                     ELSE MyTitle ");
+		sql.AppendLine("                   END ");
 		sql.AppendLine("      , Title_Ruby = @Title_Ruby ");
 		sql.AppendLine("      , Company = @Company ");
 		sql.AppendLine("      , Production = @Production ");
 		sql.AppendLine("      , ThemeSongs = @ThemeSongs ");
-		sql.AppendLine("      , Original = @Original ");
+		sql.AppendLine("      , Original = CASE ");
+		sql.AppendLine("                     WHEN Original IS NULL OR Original = '' THEN @Original ");
+		sql.AppendLine("                     ELSE Original ");
+		sql.AppendLine("                   END ");
 		sql.AppendLine("      , BroadcastText = @BroadcastText ");
 		sql.AppendLine("      , Broadcast = @Broadcast ");
 		sql.AppendLine("      , FirstBroadcast = @FirstBroadcast ");
-		sql.AppendLine("      , ExportFileName = @ExportFileName ");
-		sql.AppendLine("      , MetaTitleKana = @MetaTitleKana ");
-		sql.AppendLine("      , MetaBroadcastKana = @MetaBroadcastKana ");
+		sql.AppendLine("      , ExportFileName = CASE ");
+		sql.AppendLine("                     WHEN ExportFileName IS NULL OR ExportFileName = '' THEN @ExportFileName ");
+		sql.AppendLine("                     ELSE ExportFileName ");
+		sql.AppendLine("                   END ");
+		sql.AppendLine("      , MetaTitleKana = CASE ");
+		sql.AppendLine("                     WHEN MetaTitleKana IS NULL OR MetaTitleKana = '' THEN @MetaTitleKana ");
+		sql.AppendLine("                     ELSE MetaTitleKana ");
+		sql.AppendLine("                   END ");
+		sql.AppendLine("      , MetaBroadcastKana = CASE ");
+		sql.AppendLine("                     WHEN MetaBroadcastKana IS NULL OR MetaBroadcastKana = '' THEN @MetaBroadcastKana ");
+		sql.AppendLine("                     ELSE MetaBroadcastKana ");
+		sql.AppendLine("                   END ");
 		sql.AppendLine("      , OfficialSiteUrl = @OfficialSiteUrl ");
 		sql.AppendLine("      , OfficialPageTitle = @OfficialPageTitle ");
 		sql.AppendLine("      , WikiUrl = @WikiUrl ");
@@ -396,17 +494,17 @@ public class IntelligenceRepository
 				work.FirstBroadcast,
 				work.ExportFileName,
 				work.MetaTitleKana,
-						work.MetaBroadcastKana,
-							work.OfficialSiteUrl,
-							work.OfficialPageTitle,
-							work.WikiUrl,
-							DirectoryName = directoryName,
-							ContentHash = hash,
-							IsExport = work.IsExport ? 1 : 0,
-							IsImport = work.IsImport ? 1 : 0,
-						},
-						transaction);
-				}
+				work.MetaBroadcastKana,
+				work.OfficialSiteUrl,
+				work.OfficialPageTitle,
+				work.WikiUrl,
+				DirectoryName = directoryName,
+				ContentHash = hash,
+				IsExport = work.IsExport ? 1 : 0,
+				IsImport = work.IsImport ? 1 : 0,
+			},
+			transaction);
+		}
 
 	/// <summary>
 	/// 指定アニメ作品 ID に紐づくキャスト情報を全件削除します。
@@ -448,6 +546,58 @@ public class IntelligenceRepository
 			" UPDATE AnimeWorks SET UpdatedAt = DATETIME('now', 'localtime') WHERE Id = @Id ",
 			new { Id = id },
 			transaction);
+	}
+
+	/// <summary>
+	/// 指定クールのアニメ作品を全件取得します。
+	/// </summary>
+	/// <param name="season">対象クール。</param>
+	/// <param name="ct">キャンセルトークン。</param>
+	/// <returns>アニメ作品リスト。</returns>
+	public async Task<List<AnimeWork>> GetBySeasonAsync(Season season, CancellationToken ct)
+	{
+		var sql = new StringBuilder();
+		sql.AppendLine(" SELECT ");
+		sql.AppendLine("      Id ");
+		sql.AppendLine("    , Year ");
+		sql.AppendLine("    , SeasonID ");
+		sql.AppendLine("    , SortIndex ");
+		sql.AppendLine("    , NormalizedTitle ");
+		sql.AppendLine("    , Title ");
+		sql.AppendLine("    , AnimateHeaderTitle ");
+		sql.AppendLine("    , MyTitle ");
+		sql.AppendLine("    , Title_Ruby ");
+		sql.AppendLine("    , Company ");
+		sql.AppendLine("    , Production ");
+		sql.AppendLine("    , ThemeSongs ");
+		sql.AppendLine("    , Original ");
+		sql.AppendLine("    , BroadcastText ");
+		sql.AppendLine("    , Broadcast ");
+		sql.AppendLine("    , FirstBroadcast ");
+		sql.AppendLine("    , ExportFileName ");
+		sql.AppendLine("    , MetaTitleKana ");
+		sql.AppendLine("    , MetaBroadcastKana ");
+		sql.AppendLine("    , OfficialSiteUrl ");
+		sql.AppendLine("    , OfficialPageTitle ");
+		sql.AppendLine("    , WikiUrl ");
+		sql.AppendLine("    , DirectoryName ");
+		sql.AppendLine("    , ContentHash ");
+		sql.AppendLine("    , IsExport ");
+		sql.AppendLine("    , IsImport ");
+		sql.AppendLine("    , InsertedAt ");
+		sql.AppendLine("    , UpdatedAt ");
+		sql.AppendLine(" FROM AnimeWorks ");
+		sql.AppendLine(" WHERE Year = @Year ");
+		sql.AppendLine("   AND SeasonID = @SeasonID ");
+
+		using var connection = new SQLiteConnection(this.applicationContext.ConnectionString);
+		await connection.OpenAsync(ct);
+
+		var rows = await connection.QueryAsync<AnimeWork>(
+			sql.ToString(),
+			new { Year = season.Year, SeasonID = (int)season.SeasonID });
+
+		return rows.ToList();
 	}
 
 	/// <summary>

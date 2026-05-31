@@ -90,20 +90,22 @@ public class KansouTranslator : TranslatorBase
 
 			applyBroadcastInfo(rawData, match);
 
-				// Kansou の公式サイトが SNS のみの場合はインポート対象外とする
-				if (isSnsOnlyUrl(rawData.OfficialSiteUrl))
-				{
-					match.IsImport = false;
-				}
-				else if (!string.IsNullOrWhiteSpace(rawData.OfficialSiteUrl)
-					  && string.IsNullOrWhiteSpace(match.OfficialSiteUrl))
-				{
-					// Animate 側に URL がなく Kansou 側に有効な URL がある場合は補完する
-					match.OfficialSiteUrl = rawData.OfficialSiteUrl;
-					match.IsImport = true;
-				}
+			// Kansou・Animate 双方の公式サイトが空または SNS のみの場合はインポート対象外とする
+			// Animate 側に有効な URL がある場合は Kansou 側の状態に関わらず IsImport を変更しない
+			if (isSnsOnlyUrl(rawData.OfficialSiteUrl) && isSnsOnlyUrl(match.OfficialSiteUrl))
+			{
+				match.IsImport = false;
+			}
+			else if (!string.IsNullOrWhiteSpace(rawData.OfficialSiteUrl)
+				  && !isSnsOnlyUrl(rawData.OfficialSiteUrl)
+				  && string.IsNullOrWhiteSpace(match.OfficialSiteUrl))
+			{
+				// Animate 側に URL がなく Kansou 側に有効な URL がある場合は補完する
+				match.OfficialSiteUrl = rawData.OfficialSiteUrl;
+				match.IsImport = true;
+			}
 
-				this.logger.ZLogInfo($"Kansou: 補完完了: {match.Title}");
+			this.logger.ZLogInfo($"Kansou: 補完完了: {match.Title}");
 		}
 
 		return currentList;

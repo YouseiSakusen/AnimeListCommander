@@ -163,13 +163,14 @@ public class AnimeWork
 	/// <summary>
 	/// コンテンツの変更検出に使用するハッシュ値を計算します。
 	/// Title_Ruby は除外し、Casts・Staffs の子要素も含めて SHA256 で算出します。
+	/// MyTitle は Work-Settings.txt から手動編集されるため、スクレイピング差分の誤検出を防ぐためハッシュ対象外とします。
 	/// </summary>
 	/// <returns>SHA256 ハッシュ値の16進数文字列（小文字）。</returns>
 	public string CalculateContentHash()
 	{
 		var castNames = string.Join("|", this.Casts.Select(c => c.Name));
 		var staffEntries = string.Join("|", this.Staffs.Select(s => $"{s.Role}:{s.Name}"));
-		var raw = this.Title + this.MyTitle + this.Company + this.Production
+		var raw = this.Title + this.Company + this.Production
 			+ this.ThemeSongs + this.Original + this.BroadcastText
 			+ this.Broadcast + this.FirstBroadcast + this.OfficialSiteUrl + this.OfficialPageTitle
 			+ this.ExportFileName

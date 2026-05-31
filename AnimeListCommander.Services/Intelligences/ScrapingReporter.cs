@@ -34,10 +34,11 @@ public class ScrapingReporter
 	/// 保存結果一覧からテキストレポートを生成してファイルに書き出し、そのフルパスを返します。
 	/// </summary>
 	/// <param name="results">保存結果一覧。</param>
+	/// <param name="allWorks">スクレイピングで取得した全作品（IsImport=false を含む）。Import対象外セクションの出力に使用します。</param>
 	/// <param name="season">対象クール。ファイル名に使用します。</param>
 	/// <param name="ct">キャンセルトークン。</param>
 	/// <returns>生成されたレポートファイルのフルパス。</returns>
-	public async Task<string> OutputReportAsync(IReadOnlyList<SaveResult> results, Season season, CancellationToken ct)
+	public async Task<string> OutputReportAsync(IReadOnlyList<SaveResult> results, IReadOnlyList<AnimeWork> allWorks, Season season, CancellationToken ct)
 	{
 		var outputDir = this.applicationContext.AppConfiguration.SummaryOutputPath;
 		Directory.CreateDirectory(outputDir);
@@ -83,6 +84,25 @@ public class ScrapingReporter
 		sb.AppendLine($"  変更なし: {results.Count(r => r.Status == SaveStatus.Skipped)}");
 		sb.AppendLine($"  要確認:   {results.Count(r => r.Status == SaveStatus.Failed)}");
 
+		var excludedWorks = allWorks.Where(w => !w.IsImport).ToList();
+		if (excludedWorks.Count > 0)
+		{
+			sb.AppendLine();
+			sb.AppendLine();
+			sb.AppendLine("===== Import対象外 =====");
+			sb.AppendLine();
+			foreach (var work in excludedWorks)
+			{
+				sb.AppendLine($"タイトル: {work.AnimateHeaderTitle}");
+				sb.AppendLine($"理由: {resolveExcludeReason(work)}");
+				sb.AppendLine($"Animate公式URL: {work.OfficialSiteUrl}");
+				sb.AppendLine($"Wiki URL: {work.WikiUrl}");
+				sb.AppendLine($"放送形態: {work.BroadcastText}");
+				sb.AppendLine();
+				sb.AppendLine(Separator);
+			}
+		}
+
 		await File.WriteAllTextAsync(filePath, sb.ToString(), new UTF8Encoding(encoderShouldEmitUTF8Identifier: false), ct);
 
 		this.logger.ZLogInfo($"レポートを出力しました: {filePath}");
@@ -90,6 +110,26 @@ public class ScrapingReporter
 		this.cleanupOldReports(outputDir);
 
 		return filePath;
+	}
+
+	/// <summary>
+	/// Import対象外の理由を文字列で返します。
+	/// </summary>
+	private static string resolveExcludeReason(AnimeWork work)
+	{
+		if (work.AnimateHeaderTitle.Contains("再放送"))
+			return "再放送";
+
+		if (work.BroadcastText.Contains("特撮"))
+			return "特撮";
+
+		if (string.IsNullOrWhiteSpace(work.OfficialSiteUrl))
+			return "公式サイトなし";
+
+		if (work.OfficialSiteUrl.Contains("x.com") || work.OfficialSiteUrl.Contains("twitter.com"))
+			return "公式サイトがSNSのみ";
+
+		return "Import対象外";
 	}
 
 	/// <summary>

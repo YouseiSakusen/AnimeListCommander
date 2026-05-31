@@ -181,11 +181,11 @@ public class AnimateTranslator : TranslatorBase
 			var originalPrefix = originalPrefixes.FirstOrDefault(p => line.StartsWith(p, StringComparison.Ordinal));
 			if (originalPrefix is not null)
 			{
-				if (string.IsNullOrEmpty(work.Original))
-				{
-					work.Original = line[originalPrefix.Length..].Trim();
-					continue;
-				}
+				var value = line[originalPrefix.Length..].Trim();
+				work.Original = string.IsNullOrEmpty(work.Original)
+					? value
+					: work.Original + "\n" + value;
+				continue;
 			}
 
 			// 3. それ以外 → 「役職：氏名」の形式で分割して Staffs へ
