@@ -98,13 +98,60 @@ public class Coordinator
                 ? originalValues.FirstOrDefault()
                 : null;
 
-            var updated = await this.repository.UpdateFromWorkSettingsAsync(
+            var titleRuby = settings.TryGetValue("#TITLE_RUBY", out var rubyValues)
+                ? rubyValues.FirstOrDefault()
+                : null;
+
+            var broadcastText = settings.TryGetValue("#BROADCAST_TEXT", out var broadcastTextValues)
+                ? string.Join("\n", broadcastTextValues).TrimEnd()
+                : null;
+
+            var company = settings.TryGetValue("#COMPANY", out var companyValues)
+                ? companyValues.FirstOrDefault()
+                : null;
+
+            var production = settings.TryGetValue("#PRODUCTION_LOGO", out var productionValues)
+                ? productionValues.FirstOrDefault()
+                : null;
+
+            var themeSongs = settings.TryGetValue("#THEME_SONG", out var themeSongValues)
+                ? string.Join("\n", themeSongValues).TrimEnd()
+                : null;
+
+            var firstBroadcast = settings.TryGetValue("#FIRST_BROADCAST", out var firstBroadcastValues)
+                ? firstBroadcastValues.FirstOrDefault()
+                : null;
+
+            // #STAFF は Role行・Name行の2行1組
+            var staffEntries = new List<(string Role, string Name)>();
+            if (settings.TryGetValue("#STAFF", out var staffLines))
+            {
+                for (var i = 0; i + 1 < staffLines.Count; i += 2)
+                {
+                    var role = staffLines[i];
+                    var name = staffLines[i + 1];
+                    if (!string.IsNullOrWhiteSpace(role) || !string.IsNullOrWhiteSpace(name))
+                        staffEntries.Add((role, name));
+                }
+            }
+
+            var directoryName = AnimeTitleNormalizer.ToSafeDirectoryName(title);
+
+            var updated = await this.repository.UpdateFromWorkSettingsWithXcfAsync(
                 animeWorkId.Value,
+                directoryName,
                 title,
+                titleRuby,
                 exportFileName,
                 metaTitleKana,
                 metaBroadcastKana,
                 original,
+                broadcastText,
+                company,
+                production,
+                themeSongs,
+                firstBroadcast,
+                staffEntries,
                 ct);
 
             if (updated > 0)

@@ -128,6 +128,7 @@ public class OperationsRepository
 		sql.AppendLine("    , ContentHash ");
 		sql.AppendLine("    , IsExport ");
 		sql.AppendLine("    , IsImport ");
+		sql.AppendLine("    , HasXcf ");
 		sql.AppendLine("    , InsertedAt ");
 		sql.AppendLine("    , UpdatedAt ");
 		sql.AppendLine(" FROM AnimeWorks ");

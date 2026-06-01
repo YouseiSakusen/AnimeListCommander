@@ -151,6 +151,11 @@ public class AnimeWork
 	public string ContentHash { get; init; } = string.Empty;
 
 	/// <summary>
+	/// XCF ファイルが存在するかどうかを取得または設定します。
+	/// </summary>
+	public bool HasXcf { get; set; } = false;
+
+	/// <summary>
 	/// レコードの登録日時を取得します。
 	/// </summary>
 	public DateTime InsertedAt { get; init; }

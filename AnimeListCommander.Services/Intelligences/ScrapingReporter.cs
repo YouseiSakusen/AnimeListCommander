@@ -103,6 +103,36 @@ public class ScrapingReporter
 			}
 		}
 
+		var xcfDiffResults = results.Where(r => r.XcfDiffs.Count > 0).ToList();
+		if (xcfDiffResults.Count > 0)
+		{
+			sb.AppendLine();
+			sb.AppendLine();
+			sb.AppendLine("===== HasXcf作品差分 =====");
+
+			foreach (var r in xcfDiffResults)
+			{
+				sb.AppendLine();
+				sb.AppendLine($"作品：");
+				sb.AppendLine(r.Work.MyTitle);
+
+				foreach (var diff in r.XcfDiffs)
+				{
+					sb.AppendLine();
+					sb.AppendLine($"項目：");
+					sb.AppendLine(diff.FieldName);
+					sb.AppendLine($"DB：");
+					sb.AppendLine(diff.DbValue);
+					sb.AppendLine($"取得：");
+					sb.AppendLine(diff.ScrapedValue);
+					sb.AppendLine("反映していません（HasXcf=true）");
+				}
+
+				sb.AppendLine();
+				sb.AppendLine(Separator);
+			}
+		}
+
 		await File.WriteAllTextAsync(filePath, sb.ToString(), new UTF8Encoding(encoderShouldEmitUTF8Identifier: false), ct);
 
 		this.logger.ZLogInfo($"レポートを出力しました: {filePath}");

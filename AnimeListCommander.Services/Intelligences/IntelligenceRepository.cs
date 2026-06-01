@@ -62,6 +62,36 @@ public class IntelligenceRepository
 					result = new SaveResult { Work = work, Status = SaveStatus.New };
 					this.logger.ZLogInfo($"[New] {work.NormalizedTitle}");
 				}
+				else if (existing.HasXcf == 1)
+				{
+					// HasXcf=true: Work-settings.txt 由来の保護フィールドは更新しない
+					var xcfDiffs = this.collectXcfDiffs(existing, work);
+
+					// ContentHash はスクレイピング取得値で再計算するが、保護フィールド差分があっても
+					// 実際に DB へ反映しないためハッシュも保護フィールドを除いた hash を用いる
+					var xcfHash = calculateHashWithoutXcfFields(existing, work);
+
+					if (existing.ContentHash != xcfHash)
+					{
+						await this.updateWorkXcfAsync(connection, transaction, existing.Id, work, xcfHash);
+						await this.deleteCastsAsync(connection, transaction, existing.Id);
+						await this.insertCastsAsync(connection, transaction, existing.Id, work.Casts);
+						// Staffs は更新しない
+						var statusLabel = xcfDiffs.Count > 0 ? "[Updated(XCF)]" : "[Updated(XCF)]";
+						result = new SaveResult { Work = work, Status = SaveStatus.Updated, XcfDiffs = xcfDiffs };
+						this.logger.ZLogInfo($"{statusLabel} {work.NormalizedTitle}");
+					}
+					else
+					{
+						var newIsImport = work.IsImport ? 1 : 0;
+						if (existing.IsImport != newIsImport)
+							await this.updateIsImportAsync(connection, transaction, existing.Id, newIsImport);
+						else
+							await this.touchWorkAsync(connection, transaction, existing.Id);
+						result = new SaveResult { Work = work, Status = SaveStatus.Skipped, XcfDiffs = xcfDiffs };
+						this.logger.ZLogInfo($"[Skipped(XCF)] {work.NormalizedTitle}");
+					}
+				}
 				else if (existing.ContentHash != hash)
 				{
 					await this.updateWorkAsync(connection, transaction, existing.Id, work, hash, directoryName);
@@ -185,6 +215,121 @@ public class IntelligenceRepository
 	}
 
 	/// <summary>
+	/// XCF 同期用: Work-Settings.txt の内容を指定 ID のアニメ作品レコードに同期します。
+	/// HasXcf を true に設定し、DirectoryName・MyTitle 等を Work-settings.txt の値で上書きします。
+	/// また、DB の Staffs から work-settings.txt の #STAFF に存在しない行を差分削除します。
+	/// </summary>
+	/// <param name="id">更新対象レコードの ID。</param>
+	/// <param name="directoryName">ディレクトリ名。</param>
+	/// <param name="myTitle">画像用タイトル（#TITLE）。</param>
+	/// <param name="titleRuby">タイトルルビ（#TITLE_RUBY）。</param>
+	/// <param name="exportFileName">エクスポートファイル名（#EXPORT_FILENAME）。</param>
+	/// <param name="metaTitleKana">メタタイトルかな（#META_TITLE_KANA）。</param>
+	/// <param name="metaBroadcastKana">メタ放送かな（#META_BROADCAST_KANA）。</param>
+	/// <param name="original">原作（#ORIGINAL）。</param>
+	/// <param name="broadcastText">放送テキスト（#BROADCAST_TEXT）。</param>
+	/// <param name="company">会社名（#COMPANY）。</param>
+	/// <param name="production">制作会社名（#PRODUCTION_LOGO）。</param>
+	/// <param name="themeSongs">主題歌（#THEME_SONG）。</param>
+	/// <param name="firstBroadcast">初回放送（#FIRST_BROADCAST）。</param>
+	/// <param name="staffEntries">work-settings.txt の #STAFF から読んだ (Role, Name) の一覧。</param>
+	/// <param name="ct">キャンセルトークン。</param>
+	/// <returns>更新件数。</returns>
+	public async Task<int> UpdateFromWorkSettingsWithXcfAsync(
+		int id,
+		string directoryName,
+		string? myTitle,
+		string? titleRuby,
+		string? exportFileName,
+		string? metaTitleKana,
+		string? metaBroadcastKana,
+		string? original,
+		string? broadcastText,
+		string? company,
+		string? production,
+		string? themeSongs,
+		string? firstBroadcast,
+		IReadOnlyList<(string Role, string Name)> staffEntries,
+		CancellationToken ct)
+	{
+		using var connection = new SQLiteConnection(this.applicationContext.ConnectionString);
+		await connection.OpenAsync(ct);
+		await using var transaction = await connection.BeginTransactionAsync(ct);
+
+		var affected = await connection.ExecuteAsync(
+			"""
+			UPDATE AnimeWorks
+			   SET HasXcf = 1
+				 , DirectoryName = @DirectoryName
+				 , MyTitle = @MyTitle
+				 , Title_Ruby = @TitleRuby
+				 , ExportFileName = @ExportFileName
+				 , MetaTitleKana = @MetaTitleKana
+				 , MetaBroadcastKana = @MetaBroadcastKana
+				 , Original = @Original
+				 , BroadcastText = @BroadcastText
+				 , Company = @Company
+				 , Production = @Production
+				 , ThemeSongs = @ThemeSongs
+				 , FirstBroadcast = @FirstBroadcast
+				 , UpdatedAt = DATETIME('now', 'localtime')
+			 WHERE Id = @Id
+			""",
+			new
+			{
+				Id = id,
+				DirectoryName = directoryName,
+				MyTitle = myTitle ?? string.Empty,
+				TitleRuby = titleRuby ?? string.Empty,
+				ExportFileName = exportFileName ?? string.Empty,
+				MetaTitleKana = metaTitleKana ?? string.Empty,
+				MetaBroadcastKana = metaBroadcastKana ?? string.Empty,
+				Original = original ?? string.Empty,
+				BroadcastText = broadcastText ?? string.Empty,
+				Company = company ?? string.Empty,
+				Production = production ?? string.Empty,
+				ThemeSongs = themeSongs ?? string.Empty,
+				FirstBroadcast = firstBroadcast ?? string.Empty,
+			},
+			transaction);
+
+		// work-settings.txt の #STAFF に存在しないスタッフを差分削除する
+		if (staffEntries.Count > 0)
+		{
+			var keepSet = staffEntries
+				.Select(e => $"{e.Role}\t{e.Name}")
+				.ToHashSet(StringComparer.Ordinal);
+
+			var dbStaffs = (await connection.QueryAsync<StaffRow>(
+				"SELECT Role, Name FROM Staffs WHERE AnimeWorkId = @AnimeWorkId",
+				new { AnimeWorkId = id },
+				transaction)).ToList();
+
+			var deleteTargets = dbStaffs
+				.Where(s => !keepSet.Contains($"{s.Role}\t{s.Name}"))
+				.ToList();
+
+			foreach (var target in deleteTargets)
+			{
+				await connection.ExecuteAsync(
+					"DELETE FROM Staffs WHERE AnimeWorkId = @AnimeWorkId AND Role = @Role AND Name = @Name",
+					new { AnimeWorkId = id, target.Role, target.Name },
+					transaction);
+			}
+		}
+
+		await transaction.CommitAsync(ct);
+		return affected;
+	}
+
+	/// <summary>Staffs テーブルの Role/Name を保持する内部 DTO。</summary>
+	private sealed class StaffRow
+	{
+		public string Role { get; set; } = string.Empty;
+		public string Name { get; set; } = string.Empty;
+	}
+
+	/// <summary>
 	/// </summary>
 	private sealed class ExistingWork
 	{
@@ -202,6 +347,25 @@ public class IntelligenceRepository
 		/// インポート対象フラグを取得または設定します（SQLite では 0/1 で保存）。
 		/// </summary>
 		public int IsImport { get; set; }
+
+		/// <summary>
+		/// XCF ファイルが存在するかどうかを取得または設定します（SQLite では 0/1 で保存）。
+		/// </summary>
+		public int HasXcf { get; set; }
+
+		// Work-settings.txt 由来の保護フィールド
+		public string MyTitle { get; set; } = string.Empty;
+		public string DirectoryName { get; set; } = string.Empty;
+		public string Title_Ruby { get; set; } = string.Empty;
+		public string ExportFileName { get; set; } = string.Empty;
+		public string MetaTitleKana { get; set; } = string.Empty;
+		public string MetaBroadcastKana { get; set; } = string.Empty;
+		public string BroadcastText { get; set; } = string.Empty;
+		public string Company { get; set; } = string.Empty;
+		public string Production { get; set; } = string.Empty;
+		public string ThemeSongs { get; set; } = string.Empty;
+		public string FirstBroadcast { get; set; } = string.Empty;
+		public string Original { get; set; } = string.Empty;
 	}
 
 	/// <summary>
@@ -219,6 +383,19 @@ public class IntelligenceRepository
 		sql.AppendLine("      Id ");
 		sql.AppendLine("    , ContentHash ");
 		sql.AppendLine("    , IsImport ");
+		sql.AppendLine("    , HasXcf ");
+		sql.AppendLine("    , MyTitle ");
+		sql.AppendLine("    , DirectoryName ");
+		sql.AppendLine("    , Title_Ruby ");
+		sql.AppendLine("    , ExportFileName ");
+		sql.AppendLine("    , MetaTitleKana ");
+		sql.AppendLine("    , MetaBroadcastKana ");
+		sql.AppendLine("    , BroadcastText ");
+		sql.AppendLine("    , Company ");
+		sql.AppendLine("    , Production ");
+		sql.AppendLine("    , ThemeSongs ");
+		sql.AppendLine("    , FirstBroadcast ");
+		sql.AppendLine("    , Original ");
 		sql.AppendLine(" FROM AnimeWorks ");
 		sql.AppendLine(" WHERE Year = @Year ");
 		sql.AppendLine("   AND SeasonID = @SeasonID ");
@@ -270,6 +447,7 @@ public class IntelligenceRepository
 		sql.AppendLine("    , ContentHash ");
 		sql.AppendLine("    , IsExport ");
 		sql.AppendLine("    , IsImport ");
+		sql.AppendLine("    , HasXcf ");
 		sql.AppendLine(" ) ");
 		sql.AppendLine(" VALUES ");
 		sql.AppendLine(" ( ");
@@ -298,6 +476,7 @@ public class IntelligenceRepository
 		sql.AppendLine("    , @ContentHash ");
 		sql.AppendLine("    , @IsExport ");
 		sql.AppendLine("    , @IsImport ");
+		sql.AppendLine("    , @HasXcf ");
 		sql.AppendLine(" ) ");
 
 		await connection.ExecuteAsync(
@@ -329,6 +508,7 @@ public class IntelligenceRepository
 				ContentHash = hash,
 				IsExport = work.IsExport ? 1 : 0,
 				IsImport = work.IsImport ? 1 : 0,
+				HasXcf = work.HasXcf ? 1 : 0,
 			},
 			transaction);
 
@@ -423,6 +603,95 @@ public class IntelligenceRepository
 	}
 
 	/// <summary>
+	/// HasXcf=true 作品において DB と スクレイピング取得値の差分を収集します。
+	/// </summary>
+	private List<XcfFieldDiff> collectXcfDiffs(ExistingWork existing, AnimeWork scraped)
+	{
+		var diffs = new List<XcfFieldDiff>();
+
+		void check(string fieldName, string dbValue, string scrapedValue)
+		{
+			if (!string.Equals(dbValue, scrapedValue, StringComparison.Ordinal))
+				diffs.Add(new XcfFieldDiff { FieldName = fieldName, DbValue = dbValue, ScrapedValue = scrapedValue });
+		}
+
+		check("MY_TITLE",            existing.MyTitle,           scraped.MyTitle);
+		check("DIRECTORY_NAME",      existing.DirectoryName,     scraped.DirectoryName);
+		check("TITLE_RUBY",          existing.Title_Ruby,        scraped.Title_Ruby);
+		check("EXPORT_FILENAME",     existing.ExportFileName,    scraped.ExportFileName);
+		check("META_TITLE_KANA",     existing.MetaTitleKana,     scraped.MetaTitleKana);
+		check("META_BROADCAST_KANA", existing.MetaBroadcastKana, scraped.MetaBroadcastKana);
+		check("BROADCAST_TEXT",      existing.BroadcastText,     scraped.BroadcastText);
+		check("COMPANY",             existing.Company,           scraped.Company);
+		check("PRODUCTION",          existing.Production,        scraped.Production);
+		check("THEME_SONG",          existing.ThemeSongs,        scraped.ThemeSongs);
+		check("FIRST_BROADCAST",     existing.FirstBroadcast,    scraped.FirstBroadcast);
+		check("ORIGINAL",            existing.Original,          scraped.Original);
+
+		return diffs;
+	}
+
+	/// <summary>
+	/// HasXcf=true 作品用: 保護フィールドは DB 値を使ってコンテンツハッシュを計算します。
+	/// キャストはスクレイピング取得値、スタッフは DB 値を使います。
+	/// </summary>
+	private static string calculateHashWithoutXcfFields(ExistingWork existing, AnimeWork scraped)
+	{
+		var castNames = string.Join("|", scraped.Casts.Select(c => c.Name));
+		// Staffs は保護対象のため DB 値は存在しない（再取得しない）。
+		// ハッシュの安定性のため staffEntries は空文字とする。
+		var raw = scraped.Title + existing.Company + existing.Production
+			+ existing.ThemeSongs + existing.Original + existing.BroadcastText
+			+ scraped.Broadcast + existing.FirstBroadcast + scraped.OfficialSiteUrl + scraped.OfficialPageTitle
+			+ existing.ExportFileName
+			+ existing.MetaTitleKana
+			+ existing.MetaBroadcastKana
+			+ castNames;
+		var bytes = System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(raw));
+		return Convert.ToHexString(bytes).ToLowerInvariant();
+	}
+
+	/// <summary>
+	/// HasXcf=true 作品用: Work-settings.txt 由来の保護フィールドを除いて AnimeWorks を UPDATE します。
+	/// キャスト・スタッフは呼び出し元で制御します。
+	/// </summary>
+	private async Task updateWorkXcfAsync(SQLiteConnection connection, DbTransaction transaction, int id, AnimeWork work, string hash)
+	{
+		var sql = new StringBuilder();
+		sql.AppendLine(" UPDATE AnimeWorks ");
+		sql.AppendLine("    SET SortIndex = @SortIndex ");
+		sql.AppendLine("      , Title = @Title ");
+		sql.AppendLine("      , AnimateHeaderTitle = @AnimateHeaderTitle ");
+		sql.AppendLine("      , Broadcast = @Broadcast ");
+		sql.AppendLine("      , OfficialSiteUrl = @OfficialSiteUrl ");
+		sql.AppendLine("      , OfficialPageTitle = @OfficialPageTitle ");
+		sql.AppendLine("      , WikiUrl = @WikiUrl ");
+		sql.AppendLine("      , ContentHash = @ContentHash ");
+		sql.AppendLine("      , IsExport = @IsExport ");
+		sql.AppendLine("      , IsImport = @IsImport ");
+		sql.AppendLine("      , UpdatedAt = DATETIME('now', 'localtime') ");
+		sql.AppendLine(" WHERE Id = @Id ");
+
+		await connection.ExecuteAsync(
+			sql.ToString(),
+			new
+			{
+				Id = id,
+				work.SortIndex,
+				work.Title,
+				work.AnimateHeaderTitle,
+				work.Broadcast,
+				work.OfficialSiteUrl,
+				work.OfficialPageTitle,
+				work.WikiUrl,
+				ContentHash = hash,
+				IsExport = work.IsExport ? 1 : 0,
+				IsImport = work.IsImport ? 1 : 0,
+			},
+			transaction);
+	}
+
+	/// <summary>
 	/// 指定 ID のアニメ作品レコードを UPDATE します。
 	/// </summary>
 	/// <param name="connection">SQLite 接続。</param>
@@ -472,6 +741,7 @@ public class IntelligenceRepository
 		sql.AppendLine("      , ContentHash = @ContentHash ");
 		sql.AppendLine("      , IsExport = @IsExport ");
 		sql.AppendLine("      , IsImport = @IsImport ");
+		sql.AppendLine("      , HasXcf = @HasXcf ");
 		sql.AppendLine("      , UpdatedAt = DATETIME('now', 'localtime') ");
 		sql.AppendLine(" WHERE Id = @Id ");
 
@@ -502,6 +772,7 @@ public class IntelligenceRepository
 				ContentHash = hash,
 				IsExport = work.IsExport ? 1 : 0,
 				IsImport = work.IsImport ? 1 : 0,
+				HasXcf = work.HasXcf ? 1 : 0,
 			},
 			transaction);
 		}
@@ -584,6 +855,7 @@ public class IntelligenceRepository
 		sql.AppendLine("    , ContentHash ");
 		sql.AppendLine("    , IsExport ");
 		sql.AppendLine("    , IsImport ");
+		sql.AppendLine("    , HasXcf ");
 		sql.AppendLine("    , InsertedAt ");
 		sql.AppendLine("    , UpdatedAt ");
 		sql.AppendLine(" FROM AnimeWorks ");

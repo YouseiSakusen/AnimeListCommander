@@ -267,7 +267,10 @@ public static class WorkSettingsHelper
 
 		foreach (var line in lines)
 		{
-			if (line.Length > 1 && line[0] == '#' && line[1..].All(c => char.IsAsciiLetterUpper(c) || c == '_'))
+			if (line.Length > 1 && line[0] == '#'
+				&& (line[1..].All(c => char.IsAsciiLetterUpper(c) || c == '_')
+					|| line == "#AnimeWorkId"
+					|| line == "#SITE_HTML"))
 			{
 				flushSection();
 				currentHeader = line;

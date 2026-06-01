@@ -19,4 +19,10 @@ public class SaveResult
 	/// 補足メッセージを取得します。失敗時のエラー情報などに使用します。
 	/// </summary>
 	public string? Message { get; init; }
+
+	/// <summary>
+	/// HasXcf=true 作品で反映しなかった差分一覧を取得します。
+	/// HasXcf=false の場合は空のリストです。
+	/// </summary>
+	public IReadOnlyList<XcfFieldDiff> XcfDiffs { get; init; } = Array.Empty<XcfFieldDiff>();
 }
