@@ -76,7 +76,13 @@ public class IntelligenceRepository
 						await this.updateWorkXcfAsync(connection, transaction, existing.Id, work, xcfHash);
 						await this.deleteCastsAsync(connection, transaction, existing.Id);
 						await this.insertCastsAsync(connection, transaction, existing.Id, work.Casts);
-						// Staffs は更新しない
+
+						// Staffs は既存が存在しない場合のみスクレイピング結果を登録
+						if (existing.StaffCount == 0)
+						{
+							await this.insertStaffsAsync(connection, transaction, existing.Id, work.Staffs);
+						}
+
 						var statusLabel = xcfDiffs.Count > 0 ? "[Updated(XCF)]" : "[Updated(XCF)]";
 						result = new SaveResult { Work = work, Status = SaveStatus.Updated, XcfDiffs = xcfDiffs };
 						this.logger.ZLogInfo($"{statusLabel} {work.NormalizedTitle}");
@@ -217,7 +223,7 @@ public class IntelligenceRepository
 	/// <summary>
 	/// XCF 同期用: Work-Settings.txt の内容を指定 ID のアニメ作品レコードに同期します。
 	/// HasXcf を true に設定し、DirectoryName・MyTitle 等を Work-settings.txt の値で上書きします。
-	/// また、DB の Staffs から work-settings.txt の #STAFF に存在しない行を差分削除します。
+	/// また、DB の Staffs を完全に置き換えます（既存を全削除後、Work-settings の内容で再登録）。
 	/// </summary>
 	/// <param name="id">更新対象レコードの ID。</param>
 	/// <param name="directoryName">ディレクトリ名。</param>
@@ -228,6 +234,7 @@ public class IntelligenceRepository
 	/// <param name="metaBroadcastKana">メタ放送かな（#META_BROADCAST_KANA）。</param>
 	/// <param name="original">原作（#ORIGINAL）。</param>
 	/// <param name="broadcastText">放送テキスト（#BROADCAST_TEXT）。</param>
+	/// <param name="broadcastLogo">放送ロゴ（#BROADCAST_LOGO）。</param>
 	/// <param name="company">会社名（#COMPANY）。</param>
 	/// <param name="production">制作会社名（#PRODUCTION_LOGO）。</param>
 	/// <param name="themeSongs">主題歌（#THEME_SONG）。</param>
@@ -245,6 +252,7 @@ public class IntelligenceRepository
 		string? metaBroadcastKana,
 		string? original,
 		string? broadcastText,
+		string? broadcastLogo,
 		string? company,
 		string? production,
 		string? themeSongs,
@@ -268,6 +276,7 @@ public class IntelligenceRepository
 				 , MetaBroadcastKana = @MetaBroadcastKana
 				 , Original = @Original
 				 , BroadcastText = @BroadcastText
+				 , Broadcast = @Broadcast
 				 , Company = @Company
 				 , Production = @Production
 				 , ThemeSongs = @ThemeSongs
@@ -286,6 +295,7 @@ public class IntelligenceRepository
 				MetaBroadcastKana = metaBroadcastKana ?? string.Empty,
 				Original = original ?? string.Empty,
 				BroadcastText = broadcastText ?? string.Empty,
+				Broadcast = broadcastLogo ?? string.Empty,
 				Company = company ?? string.Empty,
 				Production = production ?? string.Empty,
 				ThemeSongs = themeSongs ?? string.Empty,
@@ -293,40 +303,32 @@ public class IntelligenceRepository
 			},
 			transaction);
 
-		// work-settings.txt の #STAFF に存在しないスタッフを差分削除する
+		// Work-settings.txt の #STAFF で Staffs テーブルを完全に置き換える
+		// 既存スタッフをすべて削除
+		await connection.ExecuteAsync(
+			"DELETE FROM Staffs WHERE AnimeWorkId = @AnimeWorkId",
+			new { AnimeWorkId = id },
+			transaction);
+
+		// Work-settings から取得したスタッフを登録
 		if (staffEntries.Count > 0)
 		{
-			var keepSet = staffEntries
-				.Select(e => $"{e.Role}\t{e.Name}")
-				.ToHashSet(StringComparer.Ordinal);
-
-			var dbStaffs = (await connection.QueryAsync<StaffRow>(
-				"SELECT Role, Name FROM Staffs WHERE AnimeWorkId = @AnimeWorkId",
-				new { AnimeWorkId = id },
-				transaction)).ToList();
-
-			var deleteTargets = dbStaffs
-				.Where(s => !keepSet.Contains($"{s.Role}\t{s.Name}"))
+			var staffs = staffEntries
+				.Select((entry, index) => new StaffInfo
+				{
+					AnimeWorkId = id,
+					Role = entry.Role,
+					Name = entry.Name,
+					SortOrder = index + 1,
+					IsExport = true,
+				})
 				.ToList();
 
-			foreach (var target in deleteTargets)
-			{
-				await connection.ExecuteAsync(
-					"DELETE FROM Staffs WHERE AnimeWorkId = @AnimeWorkId AND Role = @Role AND Name = @Name",
-					new { AnimeWorkId = id, target.Role, target.Name },
-					transaction);
-			}
+			await this.insertStaffsAsync(connection, transaction, id, staffs);
 		}
 
 		await transaction.CommitAsync(ct);
 		return affected;
-	}
-
-	/// <summary>Staffs テーブルの Role/Name を保持する内部 DTO。</summary>
-	private sealed class StaffRow
-	{
-		public string Role { get; set; } = string.Empty;
-		public string Name { get; set; } = string.Empty;
 	}
 
 	/// <summary>
@@ -352,6 +354,11 @@ public class IntelligenceRepository
 		/// XCF ファイルが存在するかどうかを取得または設定します（SQLite では 0/1 で保存）。
 		/// </summary>
 		public int HasXcf { get; set; }
+
+		/// <summary>
+		/// 既存のスタッフ数を取得または設定します。HasXcf=true の場合の Staffs 更新制御に使用します。
+		/// </summary>
+		public int StaffCount { get; set; }
 
 		// Work-settings.txt 由来の保護フィールド
 		public string MyTitle { get; set; } = string.Empty;
@@ -396,6 +403,7 @@ public class IntelligenceRepository
 		sql.AppendLine("    , ThemeSongs ");
 		sql.AppendLine("    , FirstBroadcast ");
 		sql.AppendLine("    , Original ");
+		sql.AppendLine("    , (SELECT COUNT(*) FROM Staffs WHERE AnimeWorkId = AnimeWorks.Id) AS StaffCount ");
 		sql.AppendLine(" FROM AnimeWorks ");
 		sql.AppendLine(" WHERE Year = @Year ");
 		sql.AppendLine("   AND SeasonID = @SeasonID ");
@@ -628,6 +636,22 @@ public class IntelligenceRepository
 		check("FIRST_BROADCAST",     existing.FirstBroadcast,    scraped.FirstBroadcast);
 		check("ORIGINAL",            existing.Original,          scraped.Original);
 
+		// Staffs の差分を検出（DB に Staffs が存在する場合、スクレイピング結果は登録しない）
+		if (existing.StaffCount > 0 && scraped.Staffs.Count > 0)
+		{
+			// DB に Staffs が存在し、スクレイピング結果にも Staff がある場合
+			var dbStaffStr = "(既存あり)";
+			var scrapedStaffStr = string.Join(", ", scraped.Staffs.Select(s => $"{s.Role}:{s.Name}"));
+			check("STAFFS", dbStaffStr, scrapedStaffStr);
+		}
+		else if (existing.StaffCount == 0 && scraped.Staffs.Count > 0)
+		{
+			// DB に Staffs がなく、スクレイピング結果に Staff がある場合
+			var dbStaffStr = "(なし)";
+			var scrapedStaffStr = string.Join(", ", scraped.Staffs.Select(s => $"{s.Role}:{s.Name}"));
+			check("STAFFS", dbStaffStr, scrapedStaffStr);
+		}
+
 		return diffs;
 	}
 
@@ -653,7 +677,7 @@ public class IntelligenceRepository
 
 	/// <summary>
 	/// HasXcf=true 作品用: Work-settings.txt 由来の保護フィールドを除いて AnimeWorks を UPDATE します。
-	/// キャスト・スタッフは呼び出し元で制御します。
+	/// 既存値が空でない保護フィールドは更新しません。キャスト・スタッフは呼び出し元で制御します。
 	/// </summary>
 	private async Task updateWorkXcfAsync(SQLiteConnection connection, DbTransaction transaction, int id, AnimeWork work, string hash)
 	{
@@ -662,7 +686,58 @@ public class IntelligenceRepository
 		sql.AppendLine("    SET SortIndex = @SortIndex ");
 		sql.AppendLine("      , Title = @Title ");
 		sql.AppendLine("      , AnimateHeaderTitle = @AnimateHeaderTitle ");
-		sql.AppendLine("      , Broadcast = @Broadcast ");
+		sql.AppendLine("      , MyTitle = CASE ");
+		sql.AppendLine("                     WHEN MyTitle IS NULL OR MyTitle = '' THEN @MyTitle ");
+		sql.AppendLine("                     ELSE MyTitle ");
+		sql.AppendLine("                   END ");
+		sql.AppendLine("      , Title_Ruby = CASE ");
+		sql.AppendLine("                       WHEN Title_Ruby IS NULL OR Title_Ruby = '' THEN @Title_Ruby ");
+		sql.AppendLine("                       ELSE Title_Ruby ");
+		sql.AppendLine("                     END ");
+		sql.AppendLine("      , DirectoryName = CASE ");
+		sql.AppendLine("                          WHEN DirectoryName IS NULL OR DirectoryName = '' THEN @DirectoryName ");
+		sql.AppendLine("                          ELSE DirectoryName ");
+		sql.AppendLine("                        END ");
+		sql.AppendLine("      , Company = CASE ");
+		sql.AppendLine("                    WHEN Company IS NULL OR Company = '' THEN @Company ");
+		sql.AppendLine("                    ELSE Company ");
+		sql.AppendLine("                  END ");
+		sql.AppendLine("      , Production = CASE ");
+		sql.AppendLine("                       WHEN Production IS NULL OR Production = '' THEN @Production ");
+		sql.AppendLine("                       ELSE Production ");
+		sql.AppendLine("                     END ");
+		sql.AppendLine("      , ThemeSongs = CASE ");
+		sql.AppendLine("                       WHEN ThemeSongs IS NULL OR ThemeSongs = '' THEN @ThemeSongs ");
+		sql.AppendLine("                       ELSE ThemeSongs ");
+		sql.AppendLine("                     END ");
+		sql.AppendLine("      , Original = CASE ");
+		sql.AppendLine("                     WHEN Original IS NULL OR Original = '' THEN @Original ");
+		sql.AppendLine("                     ELSE Original ");
+		sql.AppendLine("                   END ");
+		sql.AppendLine("      , BroadcastText = CASE ");
+		sql.AppendLine("                          WHEN BroadcastText IS NULL OR BroadcastText = '' THEN @BroadcastText ");
+		sql.AppendLine("                          ELSE BroadcastText ");
+		sql.AppendLine("                        END ");
+		sql.AppendLine("      , Broadcast = CASE ");
+		sql.AppendLine("                      WHEN Broadcast IS NULL OR Broadcast = '' THEN @Broadcast ");
+		sql.AppendLine("                      ELSE Broadcast ");
+		sql.AppendLine("                    END ");
+		sql.AppendLine("      , FirstBroadcast = CASE ");
+		sql.AppendLine("                           WHEN FirstBroadcast IS NULL OR FirstBroadcast = '' THEN @FirstBroadcast ");
+		sql.AppendLine("                           ELSE FirstBroadcast ");
+		sql.AppendLine("                         END ");
+		sql.AppendLine("      , ExportFileName = CASE ");
+		sql.AppendLine("                           WHEN ExportFileName IS NULL OR ExportFileName = '' THEN @ExportFileName ");
+		sql.AppendLine("                           ELSE ExportFileName ");
+		sql.AppendLine("                         END ");
+		sql.AppendLine("      , MetaTitleKana = CASE ");
+		sql.AppendLine("                          WHEN MetaTitleKana IS NULL OR MetaTitleKana = '' THEN @MetaTitleKana ");
+		sql.AppendLine("                          ELSE MetaTitleKana ");
+		sql.AppendLine("                        END ");
+		sql.AppendLine("      , MetaBroadcastKana = CASE ");
+		sql.AppendLine("                              WHEN MetaBroadcastKana IS NULL OR MetaBroadcastKana = '' THEN @MetaBroadcastKana ");
+		sql.AppendLine("                              ELSE MetaBroadcastKana ");
+		sql.AppendLine("                            END ");
 		sql.AppendLine("      , OfficialSiteUrl = @OfficialSiteUrl ");
 		sql.AppendLine("      , OfficialPageTitle = @OfficialPageTitle ");
 		sql.AppendLine("      , WikiUrl = @WikiUrl ");
@@ -680,7 +755,19 @@ public class IntelligenceRepository
 				work.SortIndex,
 				work.Title,
 				work.AnimateHeaderTitle,
+				work.MyTitle,
+				work.Title_Ruby,
+				work.DirectoryName,
+				work.Company,
+				work.Production,
+				work.ThemeSongs,
+				work.Original,
+				work.BroadcastText,
 				work.Broadcast,
+				work.FirstBroadcast,
+				work.ExportFileName,
+				work.MetaTitleKana,
+				work.MetaBroadcastKana,
 				work.OfficialSiteUrl,
 				work.OfficialPageTitle,
 				work.WikiUrl,

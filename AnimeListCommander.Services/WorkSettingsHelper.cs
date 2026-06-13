@@ -30,6 +30,7 @@ public static class WorkSettingsHelper
 
 	/// <summary>
 	/// 指定ディレクトリに作品設定ファイルを書き出します。
+	/// DB の値から生成します。既存ファイルが存在する場合はバックアップを取得します。
 	/// </summary>
 	/// <param name="directoryPath">出力先ディレクトリパス。</param>
 	/// <param name="work">対象アニメ作品。</param>
@@ -44,7 +45,6 @@ public static class WorkSettingsHelper
 		Directory.CreateDirectory(directoryPath);
 
 		var settingsPath = GetSettingsPath(directoryPath);
-		var existingValues = await parseExistingSettingsAsync(settingsPath);
 		backupIfExists(settingsPath);
 
 		var encoding = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
@@ -52,7 +52,7 @@ public static class WorkSettingsHelper
 
 		foreach (var master in masters.OrderBy(m => m.DisplayOrder))
 		{
-			foreach (var line in resolveLines(master, work, existingValues))
+			foreach (var line in resolveLines(master, work))
 			{
 				await writer.WriteLineAsync(line);
 			}
@@ -103,66 +103,37 @@ public static class WorkSettingsHelper
 
 	/// <summary>
 	/// マスタ設定項目に対応する出力行を列挙します。
-	/// 上書き禁止かつ既存値がある場合は既存値を、それ以外はスクレイピング結果を使用します。
+	/// 常に DB の値を使用します。
 	/// </summary>
 	/// <param name="master">出力対象の作品設定項目マスタ。</param>
 	/// <param name="work">出力元のアニメ作品データ。</param>
-	/// <param name="existingValues">既存の設定ファイルから読み込んだヘッダーと値のマッピング。</param>
 	/// <returns>設定ファイルに書き出す行のシーケンス。</returns>
 	private static IEnumerable<string> resolveLines(
 		WorkSettingItem master,
-		AnimeWork work,
-		IReadOnlyDictionary<string, List<string>> existingValues)
+		AnimeWork work)
 	{
-		existingValues.TryGetValue(master.HeaderName, out var existingLines);
-		var useExisting = !master.IsOverwriteAllowed && existingLines is { Count: > 0 };
-
 		switch (master.HeaderName)
 		{
 			case "#CAST":
 				yield return master.HeaderName;
-				if (useExisting)
-				{
-					foreach (var line in existingLines!)
-						yield return line;
-				}
-				else
-				{
-					foreach (var cast in work.Casts.Where(c => c.IsExport).OrderBy(c => c.SortOrder))
-						yield return cast.Name;
-				}
+				foreach (var cast in work.Casts.Where(c => c.IsExport).OrderBy(c => c.SortOrder))
+					yield return cast.Name;
 				yield return string.Empty;
 				yield break;
 
 			case "#STAFF":
 				yield return master.HeaderName;
-				if (useExisting)
+				foreach (var staff in work.Staffs.Where(s => s.IsExport).OrderBy(s => s.SortOrder))
 				{
-					foreach (var line in existingLines!)
-						yield return line;
-				}
-				else
-				{
-					foreach (var staff in work.Staffs.Where(s => s.IsExport).OrderBy(s => s.SortOrder))
-					{
-						yield return staff.Role;
-						yield return staff.Name;
-					}
+					yield return staff.Role;
+					yield return staff.Name;
 				}
 				yield return string.Empty;
 				yield break;
 
 			default:
 					yield return master.HeaderName;
-					if (useExisting)
-					{
-						foreach (var line in existingLines!)
-							yield return line;
-					}
-					else
-					{
-						yield return resolveValue(master.HeaderName, work);
-					}
+					yield return resolveValue(master.HeaderName, work);
 					yield return string.Empty;
 					break;
 		}

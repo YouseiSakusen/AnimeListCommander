@@ -122,17 +122,15 @@ public class Coordinator
                 ? firstBroadcastValues.FirstOrDefault()
                 : null;
 
+            var broadcastLogo = settings.TryGetValue("#BROADCAST_LOGO", out var broadcastLogoValues)
+                ? broadcastLogoValues.FirstOrDefault()
+                : null;
+
             // #STAFF は Role行・Name行の2行1組
             var staffEntries = new List<(string Role, string Name)>();
             if (settings.TryGetValue("#STAFF", out var staffLines))
             {
-                for (var i = 0; i + 1 < staffLines.Count; i += 2)
-                {
-                    var role = staffLines[i];
-                    var name = staffLines[i + 1];
-                    if (!string.IsNullOrWhiteSpace(role) || !string.IsNullOrWhiteSpace(name))
-                        staffEntries.Add((role, name));
-                }
+                staffEntries = this.parseStaffEntries(staffLines);
             }
 
             var directoryName = AnimeTitleNormalizer.ToSafeDirectoryName(title);
@@ -147,6 +145,7 @@ public class Coordinator
                 metaBroadcastKana,
                 original,
                 broadcastText,
+                broadcastLogo,
                 company,
                 production,
                 themeSongs,
@@ -167,5 +166,83 @@ public class Coordinator
             .ToDictionary(g => g.Key, g => g.First());
 
         return map;
+    }
+
+    /// <summary>
+    /// #STAFF から読んだ行リストをスタッフエントリーに解析します。
+    /// 以下の3形式に対応します：
+    /// 1. 従来形式: 役職 / 名前（2行1組）
+    /// 2. 特殊役職形式: 「キャラクターデザイン」直後に「総作画監督」が続く場合は結合（3行1組）
+    /// 3. 1行形式: 「役職：名前」（全角コロン区切り）
+    /// </summary>
+    /// <param name="staffLines">Work-settings.txt から読んだ #STAFF の行リスト。</param>
+    /// <returns>パースされたスタッフエントリーのリスト。</returns>
+    private List<(string Role, string Name)> parseStaffEntries(List<string> staffLines)
+    {
+        var result = new List<(string Role, string Name)>();
+        var i = 0;
+
+        while (i < staffLines.Count)
+        {
+            var line = staffLines[i];
+
+            // 空行は無視
+            if (string.IsNullOrWhiteSpace(line))
+            {
+                i++;
+                continue;
+            }
+
+            // 1行形式の判定（全角コロン「：」を含む）
+            if (line.Contains('：'))
+            {
+                var parts = line.Split('：');
+                if (parts.Length >= 2)
+                {
+                    var role = parts[0].Trim();
+                    var name = parts[1].Trim();
+                    if (!string.IsNullOrWhiteSpace(role) && !string.IsNullOrWhiteSpace(name))
+                    {
+                        result.Add((role, name));
+                    }
+                }
+                i++;
+                continue;
+            }
+
+            // 2行以上の場合、複数行形式として処理
+            if (i + 1 < staffLines.Count)
+            {
+                var nextLine = staffLines[i + 1];
+
+                // 特殊役職形式の判定：現在行が「キャラクターデザイン」かつ次行が「総作画監督」
+                if (line.Trim() == "キャラクターデザイン" && nextLine.Trim() == "総作画監督" && i + 2 < staffLines.Count)
+                {
+                    var name = staffLines[i + 2].Trim();
+                    if (!string.IsNullOrWhiteSpace(name))
+                    {
+                        var combinedRole = line.Trim() + "\n" + nextLine.Trim();
+                        result.Add((combinedRole, name));
+                    }
+                    i += 3;
+                    continue;
+                }
+
+                // 従来形式：2行1組（役職 / 名前）
+                var role2Line = line.Trim();
+                var name2Line = nextLine.Trim();
+                if (!string.IsNullOrWhiteSpace(role2Line) && !string.IsNullOrWhiteSpace(name2Line))
+                {
+                    result.Add((role2Line, name2Line));
+                }
+                i += 2;
+                continue;
+            }
+
+            // 最後の1行が残っている場合はスキップ
+            i++;
+        }
+
+        return result;
     }
 }
