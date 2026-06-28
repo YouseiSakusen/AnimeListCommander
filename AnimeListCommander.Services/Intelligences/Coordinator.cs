@@ -95,7 +95,7 @@ public class Coordinator
                 : null;
 
             var original = settings.TryGetValue("#ORIGINAL", out var originalValues)
-                ? originalValues.FirstOrDefault()
+                ? string.Join("\n", originalValues).TrimEnd()
                 : null;
 
             var titleRuby = settings.TryGetValue("#TITLE_RUBY", out var rubyValues)

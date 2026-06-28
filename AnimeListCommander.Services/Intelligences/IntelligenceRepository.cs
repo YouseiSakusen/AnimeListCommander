@@ -72,21 +72,21 @@ public class IntelligenceRepository
 					var xcfHash = calculateHashWithoutXcfFields(existing, work);
 
 					if (existing.ContentHash != xcfHash)
-					{
-						await this.updateWorkXcfAsync(connection, transaction, existing.Id, work, xcfHash);
-						await this.deleteCastsAsync(connection, transaction, existing.Id);
-						await this.insertCastsAsync(connection, transaction, existing.Id, work.Casts);
-
-						// Staffs は既存が存在しない場合のみスクレイピング結果を登録
-						if (existing.StaffCount == 0)
 						{
-							await this.insertStaffsAsync(connection, transaction, existing.Id, work.Staffs);
-						}
+							await this.updateWorkXcfAsync(connection, transaction, existing.Id, work, xcfHash, existing.ThemeSongs);
+							await this.deleteCastsAsync(connection, transaction, existing.Id);
+							await this.insertCastsAsync(connection, transaction, existing.Id, work.Casts);
 
-						var statusLabel = xcfDiffs.Count > 0 ? "[Updated(XCF)]" : "[Updated(XCF)]";
-						result = new SaveResult { Work = work, Status = SaveStatus.Updated, XcfDiffs = xcfDiffs };
-						this.logger.ZLogInfo($"{statusLabel} {work.NormalizedTitle}");
-					}
+							// Staffs は既存が存在しない場合のみスクレイピング結果を登録
+							if (existing.StaffCount == 0)
+							{
+								await this.insertStaffsAsync(connection, transaction, existing.Id, work.Staffs);
+							}
+
+							var statusLabel = xcfDiffs.Count > 0 ? "[Updated(XCF)]" : "[Updated(XCF)]";
+							result = new SaveResult { Work = work, Status = SaveStatus.Updated, XcfDiffs = xcfDiffs };
+							this.logger.ZLogInfo($"{statusLabel} {work.NormalizedTitle}");
+						}
 					else
 					{
 						var newIsImport = work.IsImport ? 1 : 0;
@@ -676,11 +676,100 @@ public class IntelligenceRepository
 	}
 
 	/// <summary>
+	/// HasXcf=true 作品の ThemeSongs マージロジック。
+	/// 既存DBとスクレイピング取得値をマージします。
+	/// OP / ED 行の未発表プレースホルダー（「OP：」「ED：」のみ）は補完対象となります。
+	/// </summary>
+	/// <param name="existingThemeSongs">既存DBの ThemeSongs。</param>
+	/// <param name="scrapedThemeSongs">スクレイピング取得値の ThemeSongs。</param>
+	/// <returns>マージ後の ThemeSongs。</returns>
+	private static string mergeThemeSongs(string? existingThemeSongs, string? scrapedThemeSongs)
+	{
+		// 既存DBが NULL または空の場合は、スクレイピング値をそのまま使用
+		if (string.IsNullOrWhiteSpace(existingThemeSongs))
+		{
+			return scrapedThemeSongs ?? string.Empty;
+		}
+
+		// スクレイピング値が NULL または空の場合は、既存DB値を使用
+		if (string.IsNullOrWhiteSpace(scrapedThemeSongs))
+		{
+			return existingThemeSongs;
+		}
+
+		// 既存DB値をパース（改行で分割）
+		var existingLines = existingThemeSongs.Split('\n', StringSplitOptions.None);
+		var scrapedLines = scrapedThemeSongs.Split('\n', StringSplitOptions.None);
+
+		// OP / ED を抽出（未発表プレースホルダー「OP：」「ED：」と完全な値を区別）
+		var existingOpLine = existingLines.FirstOrDefault(l => l.StartsWith("OP："));
+		var existingEdLine = existingLines.FirstOrDefault(l => l.StartsWith("ED："));
+		var scrapedOpLine = scrapedLines.FirstOrDefault(l => l.StartsWith("OP："));
+		var scrapedEdLine = scrapedLines.FirstOrDefault(l => l.StartsWith("ED："));
+
+		// OP / ED 以外の行（他の主題歌がある場合）
+		var existingOtherLines = existingLines
+			.Where(l => !l.StartsWith("OP：") && !l.StartsWith("ED：") && !string.IsNullOrWhiteSpace(l))
+			.ToList();
+		var scrapedOtherLines = scrapedLines
+			.Where(l => !l.StartsWith("OP：") && !l.StartsWith("ED：") && !string.IsNullOrWhiteSpace(l))
+			.ToList();
+
+		var resultLines = new List<string>();
+
+		// OP 行の処理
+		var opLine = existingOpLine;
+		if (existingOpLine == "OP：")
+		{
+			// 既存DBの OP が未発表プレースホルダー
+			if (!string.IsNullOrEmpty(scrapedOpLine))
+			{
+				opLine = scrapedOpLine;
+			}
+		}
+		if (!string.IsNullOrEmpty(opLine))
+		{
+			resultLines.Add(opLine);
+		}
+
+		// ED 行の処理
+		var edLine = existingEdLine;
+		if (existingEdLine == "ED：")
+		{
+			// 既存DBの ED が未発表プレースホルダー
+			if (!string.IsNullOrEmpty(scrapedEdLine))
+			{
+				edLine = scrapedEdLine;
+			}
+		}
+		if (!string.IsNullOrEmpty(edLine))
+		{
+			resultLines.Add(edLine);
+		}
+
+		// OP / ED 以外の行：既存DB側に値がある場合は優先、ない場合はスクレイピング側を追加
+		if (existingOtherLines.Count > 0)
+		{
+			resultLines.AddRange(existingOtherLines);
+		}
+		else if (scrapedOtherLines.Count > 0)
+		{
+			resultLines.AddRange(scrapedOtherLines);
+		}
+
+		return string.Join("\n", resultLines);
+	}
+
+	/// <summary>
 	/// HasXcf=true 作品用: Work-settings.txt 由来の保護フィールドを除いて AnimeWorks を UPDATE します。
 	/// 既存値が空でない保護フィールドは更新しません。キャスト・スタッフは呼び出し元で制御します。
+	/// ThemeSongs はマージロジックに基づいて補完されます。
 	/// </summary>
-	private async Task updateWorkXcfAsync(SQLiteConnection connection, DbTransaction transaction, int id, AnimeWork work, string hash)
+	private async Task updateWorkXcfAsync(SQLiteConnection connection, DbTransaction transaction, int id, AnimeWork work, string hash, string? existingThemeSongs)
 	{
+		// ThemeSongs をマージ（OP / ED 行の補完ロジック）
+		var mergedThemeSongs = mergeThemeSongs(existingThemeSongs, work.ThemeSongs);
+
 		var sql = new StringBuilder();
 		sql.AppendLine(" UPDATE AnimeWorks ");
 		sql.AppendLine("    SET SortIndex = @SortIndex ");
@@ -706,10 +795,7 @@ public class IntelligenceRepository
 		sql.AppendLine("                       WHEN Production IS NULL OR Production = '' THEN @Production ");
 		sql.AppendLine("                       ELSE Production ");
 		sql.AppendLine("                     END ");
-		sql.AppendLine("      , ThemeSongs = CASE ");
-		sql.AppendLine("                       WHEN ThemeSongs IS NULL OR ThemeSongs = '' THEN @ThemeSongs ");
-		sql.AppendLine("                       ELSE ThemeSongs ");
-		sql.AppendLine("                     END ");
+		sql.AppendLine("      , ThemeSongs = @ThemeSongs ");
 		sql.AppendLine("      , Original = CASE ");
 		sql.AppendLine("                     WHEN Original IS NULL OR Original = '' THEN @Original ");
 		sql.AppendLine("                     ELSE Original ");
@@ -760,7 +846,7 @@ public class IntelligenceRepository
 				work.DirectoryName,
 				work.Company,
 				work.Production,
-				work.ThemeSongs,
+				ThemeSongs = mergedThemeSongs,
 				work.Original,
 				work.BroadcastText,
 				work.Broadcast,
