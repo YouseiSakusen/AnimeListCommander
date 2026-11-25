@@ -19,3 +19,8 @@
 /HalationGhost.Wpf.Ui/bin/Debug/net10.0-windows
 /HalationGhost.Wpf.Ui/obj
 /AnimeListCommander/bin/Release/net10.0-windows/win-x64
+/AnimeListCommander.Core/bin/Release/net10.0
+/AnimeListCommander.Entities/bin/Release/net10.0
+/AnimeListCommander.Services/bin/Release/net10.0
+/HalationGhost.Utilities/bin/Release/net10.0
+/HalationGhost.Wpf.Ui/bin/Release/net10.0-windows
